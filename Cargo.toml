@@ -3,7 +3,9 @@ name = "rustrag"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.85"
-description = "本地 RAG MCP Server - DevRag 的 Rust 实现"
+description = "High-performance local RAG MCP Server — indexes documents and code, serves context to AI assistants"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/Michaol/RustRAG"
 
 [dependencies]
 # MCP 协议

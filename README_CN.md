@@ -1,5 +1,9 @@
 # RustRAG
 
+[![License: MIT/Apache-2.0](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue.svg)](LICENSE-MIT)
+[![CI](https://github.com/Michaol/RustRAG/actions/workflows/ci.yml/badge.svg)](https://github.com/Michaol/RustRAG/actions/workflows/ci.yml)
+[![Rust](https://img.shields.io/badge/rust-1.85%2B-orange.svg)](https://www.rust-lang.org)
+
 [🇬🇧 English](README.md)
 
 高性能本地 RAG（检索增强生成）MCP Server，使用 Rust 编写。
@@ -154,4 +158,9 @@ cargo clippy -- -D warnings
 
 ## 许可证
 
-MIT
+本项目采用以下任一许可证授权：
+
+- [MIT 许可证](LICENSE-MIT)
+- [Apache 许可证 2.0](LICENSE-APACHE)
+
+由你选择。
