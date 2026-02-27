@@ -1,6 +1,24 @@
+# Build
 /target
+
+# Database & models
 *.db
 *.onnx
 models/
+
+# Config & secrets
 .env
+config.json
+
+# Internal docs (not for public repo)
+docs/
+.upstream-version
+
+# Tool caches
 .ace-tool/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
