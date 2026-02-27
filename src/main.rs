@@ -63,7 +63,11 @@ async fn main() -> Result<()> {
 
     // 3b. Check for updates (best-effort, errors silently ignored)
     if config.is_update_check_enabled() {
-        updater::check_for_update(updater::CURRENT_VERSION, "");
+        let ver = updater::CURRENT_VERSION;
+        let _ = tokio::task::spawn_blocking(move || {
+            updater::check_for_update(ver, "");
+        })
+        .await;
     }
 
     // 4. Download model files (if needed)

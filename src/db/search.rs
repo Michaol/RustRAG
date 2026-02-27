@@ -30,12 +30,18 @@ pub struct CodeMetadataResult {
 }
 
 fn glob_to_like(pattern: &str) -> String {
-    let mut result = pattern.replace("%", "\\%");
-    result = result.replace("_", "\\_");
-    result = result.replace("*", "%");
-    result = result.replace("?", "_");
+    // Escape the LIKE escape character itself first, then existing SQL wildcards
+    let mut result = pattern.replace('\\', "\\\\");
+    result = result.replace('%', "\\%");
+    result = result.replace('_', "\\_");
+    // Convert glob wildcards to SQL LIKE wildcards
+    result = result.replace('*', "%");
+    result = result.replace('?', "_");
     result
 }
+
+/// The ESCAPE clause to append to all LIKE expressions that use glob_to_like.
+const LIKE_ESCAPE: &str = " ESCAPE '\\'";
 
 fn map_search_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<SearchResult> {
     let distance: f64 = row.get(4)?;
@@ -116,7 +122,10 @@ impl Db {
             }
             if let Some(pat) = f.file_pattern {
                 let like_pat = glob_to_like(pat);
-                where_clauses.push("(d.filename LIKE ? OR d.filename LIKE ?)".to_string());
+                where_clauses.push(format!(
+                    "(d.filename LIKE ?{e} OR d.filename LIKE ?{e})",
+                    e = LIKE_ESCAPE
+                ));
                 params.push(Value::Text(format!("%/{}", like_pat)));
                 params.push(Value::Text(like_pat));
             }

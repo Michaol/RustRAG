@@ -166,8 +166,9 @@ fn fetch_latest_release() -> Result<GitHubRelease> {
 
 /// Extract and validate a semantic version string (e.g., "v1.2.3" → "1.2.3").
 fn normalize_version(version: &str) -> Result<String> {
-    let re = Regex::new(r"^v?(\d+)\.(\d+)\.(\d+)").unwrap();
-    let caps = re.captures(version).context("invalid semver format")?;
+    use std::sync::LazyLock;
+    static RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^v?(\d+)\.(\d+)\.(\d+)").unwrap());
+    let caps = RE.captures(version).context("invalid semver format")?;
 
     Ok(format!("{}.{}.{}", &caps[1], &caps[2], &caps[3]))
 }
