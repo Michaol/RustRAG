@@ -62,9 +62,11 @@ jobs:
           decompressed = lzma.decompress(data, format=lzma.FORMAT_RAW, filters=filters)
           tar_stream = io.BytesIO(decompressed)
           # filter='data' prevents deprecation warnings and extraction of unsafe targets in Python 3.12+
-          kwargs = {'filter': 'data'} if hasattr(tarfile, 'data_filter') else {}
           with tarfile.open(fileobj=tar_stream, mode='r:') as tar:
-              tar.extractall(path='output', **kwargs)
+              try:
+                  tar.extractall(path='output', filter='data')
+              except TypeError:
+                  tar.extractall(path='output')
           "
 
           # 4. Create final archive
