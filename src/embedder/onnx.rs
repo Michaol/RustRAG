@@ -134,13 +134,13 @@ fn mean_pooling(
     let mut result = vec![0.0f32; hidden_size];
     let mut mask_sum: f32 = 0.0;
 
-    for t in 0..seq_len {
-        let mask = attention_mask[t] as f32;
+    for (t, &mask_val) in attention_mask.iter().enumerate().take(seq_len) {
+        let mask = mask_val as f32;
         mask_sum += mask;
 
-        for h in 0..hidden_size {
+        for (h, result_h) in result.iter_mut().enumerate() {
             let idx = t * hidden_size + h;
-            result[h] += hidden_data[idx] * mask;
+            *result_h += hidden_data[idx] * mask;
         }
     }
 

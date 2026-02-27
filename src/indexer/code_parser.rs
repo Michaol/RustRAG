@@ -156,8 +156,8 @@ fn extract_signature(content: &str, lang: &str) -> String {
         }
         "python" => {
             let first_line = content.lines().next().unwrap_or("").trim();
-            if first_line.ends_with(':') {
-                return first_line[..first_line.len() - 1].to_string();
+            if let Some(stripped) = first_line.strip_suffix(':') {
+                return stripped.to_string();
             }
             if let Some(idx) = content.find("):") {
                 let sig = &content[..idx + 1];

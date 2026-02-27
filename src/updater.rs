@@ -97,12 +97,13 @@ pub fn check_for_update(current_version: &str, cache_dir: &str) {
     // Skip if checked within 24 hours
     if now.saturating_sub(cache.last_check) < CHECK_INTERVAL_SECS {
         // Still notify if there's a version we haven't told the user about
-        if !cache.latest_version.is_empty() && cache.notified_version != cache.latest_version {
-            if is_newer_version(&cache.latest_version, current_version).unwrap_or(false) {
-                print_update_notice(current_version, &cache.latest_version);
-                cache.notified_version = cache.latest_version.clone();
-                let _ = save_cache(cache_dir, &cache);
-            }
+        if !cache.latest_version.is_empty()
+            && cache.notified_version != cache.latest_version
+            && is_newer_version(&cache.latest_version, current_version).unwrap_or(false)
+        {
+            print_update_notice(current_version, &cache.latest_version);
+            cache.notified_version = cache.latest_version.clone();
+            let _ = save_cache(cache_dir, &cache);
         }
         return;
     }

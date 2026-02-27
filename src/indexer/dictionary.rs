@@ -16,6 +16,12 @@ pub struct DictionaryExtractor {
     comment_pattern: Regex,
 }
 
+impl Default for DictionaryExtractor {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl DictionaryExtractor {
     pub fn new() -> Self {
         Self {
@@ -154,11 +160,9 @@ pub fn split_camel_case(s: &str) -> Vec<String> {
     let mut current_word = String::new();
 
     for (i, c) in s.chars().enumerate() {
-        if i > 0 && c.is_uppercase() {
-            if !current_word.is_empty() {
-                words.push(current_word.to_lowercase());
-                current_word.clear();
-            }
+        if i > 0 && c.is_uppercase() && !current_word.is_empty() {
+            words.push(current_word.to_lowercase());
+            current_word.clear();
         }
         current_word.push(c);
     }

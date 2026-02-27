@@ -89,9 +89,9 @@ static INIT_VEC: Once = Once::new();
 /// Initialize the sqlite-vec extension. Safe to call multiple times.
 fn init_sqlite_vec() {
     INIT_VEC.call_once(|| unsafe {
-        rusqlite::ffi::sqlite3_auto_extension(Some(std::mem::transmute(
-            sqlite3_vec_init as *const (),
-        )));
+        #[allow(clippy::missing_transmute_annotations)]
+        let func = std::mem::transmute(sqlite3_vec_init as *const ());
+        rusqlite::ffi::sqlite3_auto_extension(Some(func));
     });
 }
 
