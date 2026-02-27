@@ -35,21 +35,51 @@ jobs:
       - name: Build release binary
         run: cargo build --release --target ${{ matrix.target }}
 
-      - name: Rename binary (Unix)
+      - name: Package binary and ONNX Runtime library
+        shell: bash
+        run: |
+          mkdir -p output
+
+          # 1. Copy our compiled binary
+          if [ "$RUNNER_OS" == "Windows" ]; then
+            cp target/${{ matrix.target }}/release/rustrag.exe output/
+          else
+            cp target/${{ matrix.target }}/release/rustrag output/
+          fi
+
+          # 2. Download ONNX Runtime binary matching ort version
+          echo "Downloading ONNX Runtime 1.23.2 for ${{ matrix.target }}..."
+          curl -sL "https://cdn.pyke.io/0/pyke:ort-rs/ms@1.23.2/${{ matrix.target }}.tar.lzma2" -o ort.tar.lzma2
+
+          # 3. Extract it
+          echo "Extracting..."
+          if [ "$RUNNER_OS" == "Windows" ]; then
+            7z x ort.tar.lzma2 -so | 7z x -si -ttar -ooutput
+          else
+            tar -xJf ort.tar.lzma2 -C output
+          fi
+
+          # 4. Create final archive
+          cd output
+          if [ "$RUNNER_OS" == "Windows" ]; then
+            7z a ../${{ matrix.artifact }}.zip *
+          else
+            tar -czvf ../${{ matrix.artifact }}.tar.gz *
+          fi
+
+      - name: Upload artifact (Unix)
         if: runner.os != 'Windows'
-        run: |
-          cp target/${{ matrix.target }}/release/rustrag ${{ matrix.artifact }}
-
-      - name: Rename binary (Windows)
-        if: runner.os == 'Windows'
-        run: |
-          copy target\${{ matrix.target }}\release\rustrag.exe ${{ matrix.artifact }}
-
-      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
-          path: ${{ matrix.artifact }}
+          path: ${{ matrix.artifact }}.tar.gz
+
+      - name: Upload artifact (Windows)
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.artifact }}.zip
 
   release:
     needs: build
