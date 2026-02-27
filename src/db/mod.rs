@@ -5,6 +5,9 @@ use std::path::Path;
 use std::sync::Once;
 use tracing::info;
 
+pub mod documents;
+pub mod models;
+
 const SCHEMA_SQL: &str = r#"
 CREATE TABLE IF NOT EXISTS documents (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
