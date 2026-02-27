@@ -1,3 +1,4 @@
+pub mod download;
 /// Embedder trait and shared types for text embedding.
 ///
 /// Mirrors the Go version's `internal/embedder/embedder.go`.
