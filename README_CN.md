@@ -1,5 +1,7 @@
 # RustRAG
 
+[🇬🇧 English](README.md)
+
 高性能本地 RAG（检索增强生成）MCP Server，使用 Rust 编写。
 
 > **40× Token 节省** — 本地索引代码库，仅检索最相关的上下文提供给 AI 助手。

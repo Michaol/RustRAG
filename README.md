@@ -1,5 +1,7 @@
 # RustRAG
 
+[🇨🇳 中文文档](README_CN.md)
+
 A high-performance local RAG (Retrieval-Augmented Generation) MCP Server written in Rust.
 
 > **40× token reduction** — indexes your codebase locally, retrieves only the most relevant context for AI assistants.
