@@ -3,6 +3,7 @@ pub mod download;
 ///
 /// Mirrors the Go version's `internal/embedder/embedder.go`.
 pub mod mock;
+pub mod tokenizer;
 
 use thiserror::Error;
 
