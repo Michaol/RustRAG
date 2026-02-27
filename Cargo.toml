@@ -11,8 +11,7 @@ rmcp = { version = "0.16", features = ["server", "macros", "transport-io"] }
 tokio = { version = "1", features = ["full"] }
 
 # ONNX 推理
-ort = { version = "=2.0.0-rc.11", features = ["download-binaries"] }
-ndarray = "0.16"
+ort = { version = "=2.0.0-rc.11", features = ["load-dynamic"] }
 
 # SQLite + 向量搜索
 rusqlite = { version = "0.32", features = ["bundled"] }
