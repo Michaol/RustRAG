@@ -1,0 +1,80 @@
+name: Upstream Watch
+on:
+  schedule:
+    - cron: "0 0 1,15 * *" # 1st and 15th of each month (~2 weeks)
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check upstream updates
+        id: check
+        run: |
+          UPSTREAM_TAG=$(gh api repos/tomohiro-owada/devrag/releases/latest --jq '.tag_name' 2>/dev/null || echo "none")
+          UPSTREAM_SHA=$(gh api repos/tomohiro-owada/devrag/commits/main --jq '.sha[:7]' 2>/dev/null || echo "none")
+
+          # Read last tracked version
+          LAST_TRACKED=$(cat .upstream-version 2>/dev/null || echo "none")
+
+          echo "upstream_tag=$UPSTREAM_TAG" >> $GITHUB_OUTPUT
+          echo "upstream_sha=$UPSTREAM_SHA" >> $GITHUB_OUTPUT
+          echo "last_tracked=$LAST_TRACKED" >> $GITHUB_OUTPUT
+
+          if [ "$UPSTREAM_TAG" != "$LAST_TRACKED" ]; then
+            echo "has_update=true" >> $GITHUB_OUTPUT
+          else
+            echo "has_update=false" >> $GITHUB_OUTPUT
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Get upstream change summary
+        if: steps.check.outputs.has_update == 'true'
+        id: diff
+        run: |
+          gh api repos/tomohiro-owada/devrag/compare/${{ steps.check.outputs.last_tracked }}...${{ steps.check.outputs.upstream_tag }} \
+            --jq '.files[] | "- \(.status): `\(.filename)` (+\(.additions)/-\(.deletions))"' > /tmp/diff_summary.txt 2>/dev/null || echo "Unable to fetch diff" > /tmp/diff_summary.txt
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create Issue
+        if: steps.check.outputs.has_update == 'true'
+        run: |
+          DIFF_CONTENT=$(cat /tmp/diff_summary.txt)
+          gh issue create \
+            --title "🔄 Upstream update: ${{ steps.check.outputs.upstream_tag }}" \
+            --body "## Upstream DevRag released a new version
+
+          **Version:** ${{ steps.check.outputs.upstream_tag }}
+          **Last tracked:** ${{ steps.check.outputs.last_tracked }}
+          **Repository:** https://github.com/tomohiro-owada/devrag
+
+          ### Changed files
+
+          ${DIFF_CONTENT}
+
+          ### Recommended actions
+
+          1. Review [upstream Release Notes](https://github.com/tomohiro-owada/devrag/releases/tag/${{ steps.check.outputs.upstream_tag }})
+          2. Evaluate which changes need to be ported to the Rust version
+          3. Update \`.upstream-version\` after porting
+          " \
+            --label "upstream-sync"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Update tracked version
+        if: steps.check.outputs.has_update == 'true'
+        run: |
+          echo "${{ steps.check.outputs.upstream_tag }}" > .upstream-version
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add .upstream-version
+          git commit -m "chore: update upstream tracking to ${{ steps.check.outputs.upstream_tag }}"
+          git push
