@@ -23,12 +23,12 @@
 
 ### 1. 安装
 
-从 [Releases](https://github.com/your-repo/rustrag/releases) 下载对应平台的最新版本，或从源码构建：
+从 [Releases](https://github.com/Michaol/RustRAG/releases) 下载对应平台的最新版本，或从源码构建：
 
 ```bash
 # 克隆并构建
-git clone https://github.com/your-repo/rustrag.git
-cd rustrag
+git clone https://github.com/Michaol/RustRAG.git
+cd RustRAG
 cargo build --release
 ```
 
@@ -51,7 +51,24 @@ cargo build --release
 
 ### 3. 添加到 MCP 客户端
 
-在你的 MCP 客户端配置中添加（如 Claude Desktop、Cursor 等）：
+#### Antigravity IDE
+
+添加到 `mcp_config.json`（设置 → MCP Servers）：
+
+```json
+{
+  "mcpServers": {
+    "rustrag": {
+      "command": "path/to/rustrag",
+      "args": ["--config", "path/to/config.json"]
+    }
+  }
+}
+```
+
+#### Claude Desktop / Cursor
+
+添加到 MCP 客户端配置文件：
 
 ```json
 {

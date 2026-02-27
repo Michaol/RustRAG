@@ -23,12 +23,12 @@ A high-performance local RAG (Retrieval-Augmented Generation) MCP Server written
 
 ### 1. Install
 
-Download the latest release for your platform from [Releases](https://github.com/your-repo/rustrag/releases), or build from source:
+Download the latest release for your platform from [Releases](https://github.com/Michaol/RustRAG/releases), or build from source:
 
 ```bash
 # Clone and build
-git clone https://github.com/your-repo/rustrag.git
-cd rustrag
+git clone https://github.com/Michaol/RustRAG.git
+cd RustRAG
 cargo build --release
 ```
 
@@ -51,7 +51,24 @@ Create a `config.json` in your project root (auto-generated with defaults on fir
 
 ### 3. Add to MCP Client
 
-Add to your MCP client configuration (e.g., Claude Desktop, Cursor, etc.):
+#### Antigravity IDE
+
+Add to your `mcp_config.json` (Settings → MCP Servers):
+
+```json
+{
+  "mcpServers": {
+    "rustrag": {
+      "command": "path/to/rustrag",
+      "args": ["--config", "path/to/config.json"]
+    }
+  }
+}
+```
+
+#### Claude Desktop / Cursor
+
+Add to the MCP client configuration file:
 
 ```json
 {
