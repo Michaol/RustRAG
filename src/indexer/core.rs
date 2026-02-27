@@ -14,13 +14,13 @@ pub struct CodeSyncResult {
     pub updated: usize,
 }
 
-pub struct Indexer<'a, E: Embedder> {
+pub struct Indexer<'a, E: Embedder + ?Sized> {
     pub db: &'a mut Db,
     pub embedder: &'a E,
     pub chunk_size: usize,
 }
 
-impl<'a, E: Embedder> Indexer<'a, E> {
+impl<'a, E: Embedder + ?Sized> Indexer<'a, E> {
     pub fn new(db: &'a mut Db, embedder: &'a E, chunk_size: usize) -> Self {
         Self {
             db,
