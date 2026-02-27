@@ -31,7 +31,7 @@ impl McpServer {
 
     /// Start the MCP server on stdio transport (blocks until the client disconnects).
     pub async fn start(self) -> Result<()> {
-        log::info!("Starting MCP server on stdio...");
+        tracing::info!("Starting MCP server on stdio...");
         let (stdin, stdout) = stdio();
 
         let app_tools = AppTools::new(self.ctx.clone());

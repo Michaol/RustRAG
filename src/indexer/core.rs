@@ -89,8 +89,7 @@ impl<'a, E: Embedder + ?Sized> Indexer<'a, E> {
                 let success = if ext == "md" {
                     self.index_markdown(path, &path_str, mod_time).is_ok()
                 } else {
-                    // Tree-sitter code parser isn't integrated yet, skip for now.
-                    true
+                    self.index_code_file(path, &path_str, mod_time).is_ok()
                 };
 
                 if success {
@@ -137,6 +136,58 @@ impl<'a, E: Embedder + ?Sized> Indexer<'a, E> {
         // Write to DB
         self.db
             .insert_document(db_path, mod_time, &db_chunks, &vectors)?;
+
+        Ok(())
+    }
+
+    /// Index a code file using Tree-sitter AST parsing.
+    ///
+    /// Parses the file into symbol-level chunks (functions, classes, methods),
+    /// generates embeddings from enriched text (`language symbol_name: content`),
+    /// and stores them with full code metadata.
+    fn index_code_file(
+        &mut self,
+        real_path: &Path,
+        db_path: &str,
+        mod_time: DateTime<Utc>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        use crate::indexer::code_parser::CodeParser;
+
+        let mut parser = CodeParser::new()?;
+        let code_chunks = parser.parse_file(real_path)?;
+        if code_chunks.is_empty() {
+            return Ok(());
+        }
+
+        // Generate embedding text enriched with language + symbol context
+        let text_refs: Vec<String> = code_chunks.iter().map(|c| c.get_embedding_text()).collect();
+        let text_str_refs: Vec<&str> = text_refs.iter().map(|s| s.as_str()).collect();
+
+        // Vectorize
+        let vectors = self.embedder.embed_batch(&text_str_refs)?;
+
+        // Convert indexer::CodeChunk → db::models::CodeChunk
+        let db_chunks: Vec<crate::db::models::CodeChunk> = code_chunks
+            .iter()
+            .enumerate()
+            .map(|(i, c)| crate::db::models::CodeChunk {
+                chunk: crate::db::models::Chunk {
+                    position: i,
+                    content: &c.content,
+                },
+                symbol_name: Some(c.symbol_name.as_str()),
+                symbol_type: &c.symbol_type,
+                language: &c.language,
+                start_line: Some(c.start_line),
+                end_line: Some(c.end_line),
+                parent_symbol: c.parent_symbol.as_deref(),
+                signature: Some(c.signature.as_str()),
+            })
+            .collect();
+
+        // Write to DB with code metadata
+        self.db
+            .insert_code_document(db_path, mod_time, &db_chunks, &vectors)?;
 
         Ok(())
     }
