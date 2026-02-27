@@ -38,7 +38,7 @@ Create a `config.json` in your project root (auto-generated with defaults on fir
 
 ```json
 {
-  "document_patterns": ["./docs", "./src"],
+  "document_patterns": ["./"],
   "db_path": "./vectors.db",
   "chunk_size": 500,
   "search_top_k": 5,

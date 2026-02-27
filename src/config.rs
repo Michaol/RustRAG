@@ -12,7 +12,7 @@ use tracing::{info, warn};
 // ── Default value functions ──────────────────────────────────────────
 
 fn default_document_patterns() -> Vec<String> {
-    vec!["./documents".to_string()]
+    vec!["./".to_string()]
 }
 
 fn default_db_path() -> String {
