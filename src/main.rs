@@ -4,6 +4,7 @@ pub mod embedder;
 pub mod frontmatter;
 pub mod indexer;
 pub mod mcp;
+pub mod updater;
 
 use crate::config::Config;
 use crate::db::Db;
@@ -66,6 +67,11 @@ async fn main() -> Result<()> {
         model = %config.model.name,
         "Configuration loaded"
     );
+
+    // 3b. Check for updates (best-effort, errors silently ignored)
+    if config.is_update_check_enabled() {
+        updater::check_for_update(updater::CURRENT_VERSION, "");
+    }
 
     // 4. Download model files (if needed)
     let model_dir = default_model_dir();
