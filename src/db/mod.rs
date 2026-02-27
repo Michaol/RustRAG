@@ -126,8 +126,7 @@ impl Db {
         Ok(Self { conn })
     }
 
-    /// Open an in-memory database connection for testing.
-    #[cfg(test)]
+    /// Open an in-memory database connection (useful for testing).
     pub fn open_in_memory() -> Result<Self> {
         init_sqlite_vec();
         let conn = Connection::open_in_memory()?;

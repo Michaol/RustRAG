@@ -1,20 +1,13 @@
-pub mod config;
-pub mod db;
-pub mod embedder;
-pub mod frontmatter;
-pub mod indexer;
-pub mod mcp;
-pub mod updater;
-
-use crate::config::Config;
-use crate::db::Db;
-use crate::embedder::download::default_model_dir;
-use crate::embedder::mock::MockEmbedder;
-use crate::embedder::onnx::OnnxEmbedder;
-use crate::indexer::core::Indexer;
-use crate::mcp::server::{McpContext, McpServer};
 use anyhow::{Context, Result};
 use clap::Parser;
+use rustrag::config::Config;
+use rustrag::db::Db;
+use rustrag::embedder::download::default_model_dir;
+use rustrag::embedder::mock::MockEmbedder;
+use rustrag::embedder::onnx::OnnxEmbedder;
+use rustrag::indexer::core::Indexer;
+use rustrag::mcp::server::{McpContext, McpServer};
+use rustrag::updater;
 use std::sync::Arc;
 use tokio::sync::Mutex as TokioMutex;
 use tracing_subscriber::EnvFilter;
@@ -77,7 +70,7 @@ async fn main() -> Result<()> {
     let model_dir = default_model_dir();
     if !cli.skip_download {
         tracing::info!("Checking model files...");
-        if let Err(e) = crate::embedder::download::download_model_files(&model_dir) {
+        if let Err(e) = rustrag::embedder::download::download_model_files(&model_dir) {
             tracing::warn!("Model download failed: {e}");
             tracing::warn!("Will use mock embedder as fallback");
         }
@@ -90,7 +83,7 @@ async fn main() -> Result<()> {
     let mut db = Db::open(&config.db_path).context("Failed to open database")?;
 
     // 6. Initialize embedder (ONNX with fallback to Mock)
-    let embedder: Arc<dyn crate::embedder::Embedder> = match OnnxEmbedder::new(&model_dir) {
+    let embedder: Arc<dyn rustrag::embedder::Embedder> = match OnnxEmbedder::new(&model_dir) {
         Ok(e) => {
             tracing::info!(
                 "ONNX embedder initialized (dim={})",
