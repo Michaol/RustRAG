@@ -45,26 +45,35 @@ jobs:
           fi
 
           # 2. Download ONNX Runtime binary matching ort version
-          echo "Downloading ONNX Runtime 1.23.2 for ${{ matrix.target }}..."
-          curl -sL "https://cdn.pyke.io/0/pyke:ort-rs/ms@1.23.2/${{ matrix.target }}.tar.lzma2" -o ort.tar.lzma2
+          if [ "$RUNNER_OS" == "Windows" ]; then
+            echo "Downloading ONNX Runtime 1.23.2 for Windows..."
+            curl -sL "https://github.com/microsoft/onnxruntime/releases/download/v1.23.2/onnxruntime-win-x64-1.23.2.zip" -o ort.zip
+            echo "Extracting official ONNX Runtime DLL..."
+            7z x ort.zip
+            cp onnxruntime-win-x64-1.23.2/lib/onnxruntime.dll output/
+            cp onnxruntime-win-x64-1.23.2/lib/onnxruntime_providers_shared.dll output/ || true
+          else
+            echo "Downloading ONNX Runtime 1.23.2 for ${{ matrix.target }}..."
+            curl -sL "https://cdn.pyke.io/0/pyke:ort-rs/ms@1.23.2/${{ matrix.target }}.tar.lzma2" -o ort.tar.lzma2
 
-          # 3. Extract it using Python (Pyke uses raw LZMA2 stream without headers, tar/7z fails)
-          echo "Extracting using Python..."
-          python -c "
-          import lzma, tarfile, io
-          with open('ort.tar.lzma2', 'rb') as f:
-              data = f.read()
-          # Pyke uses raw LZMA2 stream with 64MB dict size
-          filters = [{'id': lzma.FILTER_LZMA2, 'dict_size': 67108864}]
-          decompressed = lzma.decompress(data, format=lzma.FORMAT_RAW, filters=filters)
-          tar_stream = io.BytesIO(decompressed)
-          # filter='data' prevents deprecation warnings and extraction of unsafe targets in Python 3.12+
-          with tarfile.open(fileobj=tar_stream, mode='r:') as tar:
-              try:
-                  tar.extractall(path='output', filter='data')
-              except TypeError:
-                  tar.extractall(path='output')
-          "
+            # 3. Extract it using Python (Pyke uses raw LZMA2 stream without headers, tar/7z fails)
+            echo "Extracting using Python..."
+            python -c "
+            import lzma, tarfile, io
+            with open('ort.tar.lzma2', 'rb') as f:
+                data = f.read()
+            # Pyke uses raw LZMA2 stream with 64MB dict size
+            filters = [{'id': lzma.FILTER_LZMA2, 'dict_size': 67108864}]
+            decompressed = lzma.decompress(data, format=lzma.FORMAT_RAW, filters=filters)
+            tar_stream = io.BytesIO(decompressed)
+            # filter='data' prevents deprecation warnings and extraction of unsafe targets in Python 3.12+
+            with tarfile.open(fileobj=tar_stream, mode='r:') as tar:
+                try:
+                    tar.extractall(path='output', filter='data')
+                except TypeError:
+                    tar.extractall(path='output')
+            "
+          fi
 
           # 4. Create final archive
           cd output
