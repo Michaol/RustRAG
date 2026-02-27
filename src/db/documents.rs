@@ -108,6 +108,36 @@ impl Db {
         Ok(())
     }
 
+    /// Inserts word mappings into the dictionary table (UPSERT).
+    pub fn insert_word_mappings(
+        &mut self,
+        mappings: &[(String, String, String, f64, String)],
+    ) -> Result<()> {
+        if mappings.is_empty() {
+            return Ok(());
+        }
+        let tx = self.conn.transaction()?;
+        for (source_word, target_word, source_lang, confidence, source_doc) in mappings {
+            tx.execute(
+                r#"
+                INSERT INTO word_mapping (source_word, target_word, source_lang, confidence, source_document)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(source_word, target_word, source_lang) DO UPDATE SET
+                    confidence = MAX(word_mapping.confidence, excluded.confidence),
+                    source_document = excluded.source_document
+                "#,
+                params![source_word, target_word, source_lang, confidence, source_doc],
+            )?;
+        }
+        tx.commit()
+    }
+
+    /// Returns the total number of word mappings in the dictionary.
+    pub fn get_word_mapping_count(&self) -> Result<i64> {
+        self.conn
+            .query_row("SELECT COUNT(*) FROM word_mapping", [], |row| row.get(0))
+    }
+
     /// Inserts or updates a code document with its chunks, vectors, and metadata
     pub fn insert_code_document(
         &mut self,

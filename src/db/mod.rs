@@ -7,6 +7,8 @@ use tracing::info;
 
 pub mod documents;
 pub mod models;
+pub mod relations;
+pub mod search;
 
 const SCHEMA_SQL: &str = r#"
 CREATE TABLE IF NOT EXISTS documents (

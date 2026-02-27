@@ -3,3 +3,4 @@
 *.onnx
 models/
 .env
+.ace-tool/
