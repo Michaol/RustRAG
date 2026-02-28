@@ -87,7 +87,7 @@ async fn main() -> Result<()> {
 
     // 5. Initialize database
     tracing::info!(db_path = %config.db_path, "Opening database");
-    let mut db = Db::open(&config.db_path).context("Failed to open database")?;
+    let db = Db::open(&config.db_path).context("Failed to open database")?;
 
     // 6. Initialize embedder (ONNX with fallback to Mock)
     let embedder: Arc<dyn rustrag::embedder::Embedder> = match OnnxEmbedder::new(&model_dir) {
@@ -105,49 +105,69 @@ async fn main() -> Result<()> {
         }
     };
 
-    // 7. Differential sync (index document_patterns directories)
+    // 7. Wrap db in Arc<TokioMutex> BEFORE sync so MCP and sync can share it
+    let db = Arc::new(TokioMutex::new(db));
+
+    // 8. Create MCP context (shares db, embedder, config)
+    let mcp_ctx = McpContext {
+        db: db.clone(),
+        config: config.clone(),
+        embedder: embedder.clone(),
+        chunk_size,
+    };
+
+    // 9. Spawn background sync task (non-blocking, MCP server starts immediately)
     if !cli.skip_sync {
-        let base_dirs = config.get_base_directories();
-        tracing::info!(dirs = ?base_dirs, "Starting differential sync");
+        let sync_db = db.clone();
+        let sync_embedder = embedder.clone();
+        let sync_config = config.clone();
+        let sync_chunk_size = chunk_size;
 
-        for dir in &base_dirs {
-            if !dir.exists() {
-                tracing::warn!(dir = %dir.display(), "Directory does not exist, skipping");
-                continue;
+        tokio::spawn(async move {
+            let base_dirs = sync_config.get_base_directories();
+            tracing::info!(dirs = ?base_dirs, "Background sync started");
+
+            for dir in &base_dirs {
+                if !dir.exists() {
+                    tracing::warn!(dir = %dir.display(), "Directory does not exist, skipping");
+                    continue;
+                }
+
+                tracing::info!(dir = %dir.display(), "Syncing directory");
+
+                // Lock db per-directory to minimize contention with MCP queries
+                let result = {
+                    let mut db_guard = sync_db.lock().await;
+                    let mut indexer =
+                        Indexer::new(&mut db_guard, sync_embedder.as_ref(), sync_chunk_size);
+                    indexer.index_directory(dir, false)
+                };
+
+                match result {
+                    Ok(result) => {
+                        tracing::info!(
+                            dir = %dir.display(),
+                            indexed = result.indexed,
+                            added = result.added,
+                            updated = result.updated,
+                            skipped = result.skipped,
+                            failed = result.failed,
+                            "Sync completed"
+                        );
+                    }
+                    Err(e) => {
+                        tracing::error!(dir = %dir.display(), error = %e, "Sync failed");
+                    }
+                }
             }
 
-            tracing::info!(dir = %dir.display(), "Syncing directory");
-            let mut indexer = Indexer::new(&mut db, embedder.as_ref(), chunk_size);
-            match indexer.index_directory(dir, false) {
-                Ok(result) => {
-                    tracing::info!(
-                        dir = %dir.display(),
-                        indexed = result.indexed,
-                        added = result.added,
-                        updated = result.updated,
-                        skipped = result.skipped,
-                        failed = result.failed,
-                        "Sync completed"
-                    );
-                }
-                Err(e) => {
-                    tracing::error!(dir = %dir.display(), error = %e, "Sync failed");
-                }
-            }
-        }
+            tracing::info!("Background sync finished");
+        });
     } else {
         tracing::info!("Initial sync skipped (--skip-sync)");
     }
 
-    // 8. Create MCP context and start server
-    let db = Arc::new(TokioMutex::new(db));
-    let mcp_ctx = McpContext {
-        db,
-        config: config.clone(),
-        embedder,
-        chunk_size,
-    };
-
+    // 10. Start MCP server immediately (does NOT wait for sync)
     tracing::info!("Starting MCP server on stdio transport...");
     let server = McpServer::new(mcp_ctx);
     server.start().await?;
