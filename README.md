@@ -16,6 +16,7 @@ A high-performance local RAG (Retrieval-Augmented Generation) MCP Server written
 - **Vector Search** — SQLite + sqlite-vec for fast local vector similarity search
 - **Code Intelligence** — Tree-sitter AST parsing for Rust, Go, Python, TypeScript, JavaScript
 - **Multilingual Dictionary** — CJK↔English symbol mapping extraction
+- **High Concurrency & Stability** — Asynchronous non-blocking background syncing (`Arc<TokioMutex>`) with robust pagination to safeguard against MCP stdio transport buffer limits (zero EOF dropouts) for 10k+ files.
 - **Auto Model Download** — Automatically downloads `multilingual-e5-small` ONNX model
 - **Cross-Platform** — macOS (Intel/ARM), Linux (x64/ARM64), Windows (x64)
 
@@ -23,7 +24,15 @@ A high-performance local RAG (Retrieval-Augmented Generation) MCP Server written
 
 ### 1. Install
 
-Download the latest release for your platform from [Releases](https://github.com/Michaol/RustRAG/releases), or build from source:
+Download the latest release package for your platform from [Releases](https://github.com/Michaol/RustRAG/releases) (e.g., `rustrag-windows-x64.zip`).
+
+**Extraction and Placement Guidelines:**
+
+1. Extract the downloaded archive to a permanent local directory (e.g., `C:\Users\<YourName>\AppData\Local\RustRAG` or `~/rustrag`).
+2. **IMPORTANT**: For Windows users, you **must keep** `rustrag.exe` in the same directory as the accompanying `.dll` files (e.g., `onnxruntime.dll`). **Do not move `rustrag.exe` individually**, as it requires the ONNX Runtime libraries to start.
+3. Use the absolute path to the executable in this directory when configuring your IDE MCP settings.
+
+Alternatively, you can build from source:
 
 ```bash
 # Clone and build

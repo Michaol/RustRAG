@@ -16,6 +16,7 @@
 - **向量搜索** — SQLite + sqlite-vec 实现快速本地向量相似度搜索
 - **代码智能** — Tree-sitter AST 解析，支持 Rust、Go、Python、TypeScript、JavaScript
 - **多语言词典** — 中日韩↔英文符号映射自动提取
+- **高并发与极度稳定** — 纯异步非阻塞后台数据同步（`Arc<TokioMutex>`），以及针对 MCP 客户端缓冲限制的内置分页/截断防护（零 EOF 断流），完美处理万级独立文件
 - **模型自动下载** — 自动下载 `multilingual-e5-small` ONNX 模型
 - **跨平台** — macOS (Intel/ARM)、Linux (x64/ARM64)、Windows (x64)
 
@@ -23,7 +24,15 @@
 
 ### 1. 安装
 
-从 [Releases](https://github.com/Michaol/RustRAG/releases) 下载对应平台的最新版本，或从源码构建：
+从 [Releases](https://github.com/Michaol/RustRAG/releases) 下载对应平台的最新打包文件（例如 `rustrag-windows-x64.zip`）。
+
+**存放与配置要求：**
+
+1. 将下载的压缩包解压到一个固定的本地文件夹中（例如 `C:\Users\<YourName>\AppData\Local\RustRAG` 或 `~/rustrag`）。
+2. **重要**：Windows 用户请务必保持解压后的 `rustrag.exe` 与同目录下的 `.dll` 动态链接库文件（如 `onnxruntime.dll`）在一起。**切勿将 `rustrag.exe` 单独移动**，否则会因缺少 ONNX Runtime 运行时导致无法启动。
+3. 后续在 IDE 中直接填写该目录下的可执行文件绝对路径即可。
+
+或者你也可以从源码构建：
 
 ```bash
 # 克隆并构建
