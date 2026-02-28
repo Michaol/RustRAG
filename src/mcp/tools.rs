@@ -20,7 +20,11 @@ use crate::indexer::{
 use crate::mcp::server::McpContext;
 use rmcp::handler::server::ServerHandler;
 use rmcp::handler::server::wrapper::Parameters;
-use rmcp::{ErrorData as McpError, handler::server::tool::ToolRouter, model::*, tool, tool_router};
+use rmcp::service::RequestContext;
+use rmcp::{
+    ErrorData as McpError, RoleServer, handler::server::tool::ToolRouter, model::*, tool,
+    tool_router,
+};
 use schemars::JsonSchema;
 use serde::Deserialize;
 use std::path::Path;
@@ -118,7 +122,42 @@ pub struct AppTools {
     pub tool_router: ToolRouter<Self>,
 }
 
-impl ServerHandler for AppTools {}
+impl ServerHandler for AppTools {
+    fn get_info(&self) -> ServerInfo {
+        ServerInfo {
+            instructions: Some(
+                "RustRAG — Local RAG MCP Server for indexing and searching documents and code"
+                    .into(),
+            ),
+            capabilities: ServerCapabilities::builder().enable_tools().build(),
+            server_info: Implementation::from_build_env(),
+            ..Default::default()
+        }
+    }
+
+    async fn list_tools(
+        &self,
+        _request: Option<PaginatedRequestParams>,
+        _context: RequestContext<RoleServer>,
+    ) -> Result<ListToolsResult, McpError> {
+        let items = self.tool_router.list_all();
+        tracing::info!(count = items.len(), "list_tools called");
+        Ok(ListToolsResult {
+            tools: items,
+            next_cursor: None,
+            meta: None,
+        })
+    }
+
+    async fn call_tool(
+        &self,
+        request: CallToolRequestParams,
+        context: RequestContext<RoleServer>,
+    ) -> Result<CallToolResult, McpError> {
+        let tcc = rmcp::handler::server::tool::ToolCallContext::new(self, request, context);
+        self.tool_router.call(tcc).await
+    }
+}
 
 #[tool_router]
 impl AppTools {

@@ -35,13 +35,20 @@ impl McpServer {
         let (stdin, stdout) = stdio();
 
         let app_tools = AppTools::new(self.ctx.clone());
+
+        // Router wraps AppTools and dispatches JSON-RPC methods
+        // to the correct handlers (list_tools, call_tool, etc.)
         let router = Router::new(app_tools.clone()).with_tools(app_tools.tool_router.clone());
 
-        router
+        let service = router
             .serve((stdin, stdout))
             .await
-            .context("MCP Server encountered an error during stdio transport")?;
+            .context("MCP Server failed to initialize")?;
 
+        // Keep the server process alive until the client exits or an error occurs
+        let _ = service.waiting().await;
+
+        tracing::info!("MCP Server exited.");
         Ok(())
     }
 }
