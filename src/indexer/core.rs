@@ -4,6 +4,8 @@ use crate::indexer::markdown;
 use chrono::{DateTime, Utc};
 use ignore::WalkBuilder;
 use std::path::Path;
+use std::sync::Arc;
+use tokio::sync::Mutex as TokioMutex;
 
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct CodeSyncResult {
@@ -15,13 +17,13 @@ pub struct CodeSyncResult {
 }
 
 pub struct Indexer<'a, E: Embedder + ?Sized> {
-    pub db: &'a mut Db,
+    pub db: Arc<TokioMutex<Db>>,
     pub embedder: &'a E,
     pub chunk_size: usize,
 }
 
 impl<'a, E: Embedder + ?Sized> Indexer<'a, E> {
-    pub fn new(db: &'a mut Db, embedder: &'a E, chunk_size: usize) -> Self {
+    pub fn new(db: Arc<TokioMutex<Db>>, embedder: &'a E, chunk_size: usize) -> Self {
         Self {
             db,
             embedder,
@@ -35,7 +37,7 @@ impl<'a, E: Embedder + ?Sized> Indexer<'a, E> {
     }
 
     /// Indexes all supported files in a directory with differential sync
-    pub fn index_directory<P: AsRef<Path>>(
+    pub async fn index_directory<P: AsRef<Path>>(
         &mut self,
         dir: P,
         force: bool,
@@ -43,7 +45,10 @@ impl<'a, E: Embedder + ?Sized> Indexer<'a, E> {
         let dir = dir.as_ref();
 
         // Get existing documents from DB map(filename -> modified_at)
-        let existing_docs = self.db.list_documents()?;
+        let existing_docs = {
+            let db_guard = self.db.lock().await;
+            db_guard.list_documents()?
+        };
 
         let mut result = CodeSyncResult::default();
 
@@ -87,9 +92,11 @@ impl<'a, E: Embedder + ?Sized> Indexer<'a, E> {
 
             if needs_indexing {
                 let success = if ext == "md" {
-                    self.index_markdown(path, &path_str, mod_time).is_ok()
+                    self.index_markdown(path, &path_str, mod_time).await.is_ok()
                 } else {
-                    self.index_code_file(path, &path_str, mod_time).is_ok()
+                    self.index_code_file(path, &path_str, mod_time)
+                        .await
+                        .is_ok()
                 };
 
                 if success {
@@ -108,7 +115,7 @@ impl<'a, E: Embedder + ?Sized> Indexer<'a, E> {
         Ok(result)
     }
 
-    fn index_markdown(
+    async fn index_markdown(
         &mut self,
         real_path: &Path,
         db_path: &str,
@@ -134,8 +141,10 @@ impl<'a, E: Embedder + ?Sized> Indexer<'a, E> {
             .collect();
 
         // Write to DB
-        self.db
-            .insert_document(db_path, mod_time, &db_chunks, &vectors)?;
+        {
+            let mut db_guard = self.db.lock().await;
+            db_guard.insert_document(db_path, mod_time, &db_chunks, &vectors)?;
+        }
 
         Ok(())
     }
@@ -145,7 +154,7 @@ impl<'a, E: Embedder + ?Sized> Indexer<'a, E> {
     /// Parses the file into symbol-level chunks (functions, classes, methods),
     /// generates embeddings from enriched text (`language symbol_name: content`),
     /// and stores them with full code metadata.
-    fn index_code_file(
+    async fn index_code_file(
         &mut self,
         real_path: &Path,
         db_path: &str,
@@ -186,8 +195,10 @@ impl<'a, E: Embedder + ?Sized> Indexer<'a, E> {
             .collect();
 
         // Write to DB with code metadata
-        self.db
-            .insert_code_document(db_path, mod_time, &db_chunks, &vectors)?;
+        {
+            let mut db_guard = self.db.lock().await;
+            db_guard.insert_code_document(db_path, mod_time, &db_chunks, &vectors)?;
+        }
 
         Ok(())
     }
@@ -201,8 +212,8 @@ mod tests {
     use std::fs;
     use tempfile::tempdir;
 
-    #[test]
-    fn test_indexer_differential_sync() {
+    #[tokio::test]
+    async fn test_indexer_differential_sync() {
         let temp_dir = tempdir().unwrap();
         let dir_path = temp_dir.path();
 
@@ -213,32 +224,36 @@ mod tests {
         let file2 = dir_path.join("file2.md");
         fs::write(&file2, "Content 2").unwrap();
 
-        let mut db = Db::open_in_memory().unwrap();
+        let db = Db::open_in_memory().unwrap();
+        let db_arc = Arc::new(TokioMutex::new(db));
         let embedder = MockEmbedder::default();
-        let mut indexer = Indexer::new(&mut db, &embedder, 500);
+        let mut indexer = Indexer::new(db_arc.clone(), &embedder, 500);
 
         // First sync
-        let res1 = indexer.index_directory(dir_path, false).unwrap();
+        let res1 = indexer.index_directory(dir_path, false).await.unwrap();
         assert_eq!(res1.added, 2);
         assert_eq!(res1.indexed, 2);
         assert_eq!(res1.skipped, 0);
 
         // Second sync immediately - should skip both
-        let res2 = indexer.index_directory(dir_path, false).unwrap();
+        let res2 = indexer.index_directory(dir_path, false).await.unwrap();
         assert_eq!(res2.added, 0);
         assert_eq!(res2.updated, 0);
         assert_eq!(res2.indexed, 0);
         assert_eq!(res2.skipped, 2);
 
         // Third sync with force=true - should update both
-        let res3 = indexer.index_directory(dir_path, true).unwrap();
+        let res3 = indexer.index_directory(dir_path, true).await.unwrap();
         assert_eq!(res3.added, 0);
         assert_eq!(res3.updated, 2);
         assert_eq!(res3.indexed, 2);
         assert_eq!(res3.skipped, 0);
 
         // Check DB
-        let docs = db.list_documents().unwrap();
+        let docs = {
+            let db_lock = db_arc.lock().await;
+            db_lock.list_documents().unwrap()
+        };
         assert_eq!(docs.len(), 2);
     }
 }

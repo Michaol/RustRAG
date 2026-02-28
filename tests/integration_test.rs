@@ -8,11 +8,13 @@ use rustrag::embedder::Embedder;
 use rustrag::embedder::mock::MockEmbedder;
 use rustrag::indexer::core::Indexer;
 use std::fs;
+use std::sync::Arc;
 use tempfile::tempdir;
+use tokio::sync::Mutex as TokioMutex;
 
 /// Full pipeline: create docs → index → list → search → delete
-#[test]
-fn test_full_pipeline() {
+#[tokio::test]
+async fn test_full_pipeline() {
     // 1. Setup temp dir with test markdown files
     let temp_dir = tempdir().unwrap();
     let docs_dir = temp_dir.path().join("documents");
@@ -34,14 +36,15 @@ fn test_full_pipeline() {
     ).unwrap();
 
     // 2. Initialize DB (in-memory)
-    let mut db = Db::open_in_memory().unwrap();
+    let db = Db::open_in_memory().unwrap();
+    let db_arc = Arc::new(TokioMutex::new(db));
 
     // 3. Initialize MockEmbedder
     let embedder = MockEmbedder::default();
 
     // 4. Index via Indexer
-    let mut indexer = Indexer::new(&mut db, &embedder, 500);
-    let result = indexer.index_directory(&docs_dir, false).unwrap();
+    let mut indexer = Indexer::new(db_arc.clone(), &embedder, 500);
+    let result = indexer.index_directory(&docs_dir, false).await.unwrap();
 
     assert_eq!(result.added, 3, "Should index 3 markdown files");
     assert_eq!(result.indexed, 3, "Should report 3 indexed");
@@ -49,7 +52,10 @@ fn test_full_pipeline() {
     assert_eq!(result.failed, 0, "Should have 0 failures");
 
     // 5. List documents
-    let docs = db.list_documents().unwrap();
+    let docs = {
+        let db_lock = db_arc.lock().await;
+        db_lock.list_documents().unwrap()
+    };
     assert_eq!(docs.len(), 3, "Should have 3 documents in DB");
 
     // Verify document names contain our files (path-normalized)
@@ -69,7 +75,10 @@ fn test_full_pipeline() {
 
     // 6. Search (with mock embedder, results are based on hash similarity)
     let query_vec = embedder.embed("Rust programming").unwrap();
-    let results = db.search_with_filter(&query_vec, 5, None).unwrap();
+    let results = {
+        let db_lock = db_arc.lock().await;
+        db_lock.search_with_filter(&query_vec, 5, None).unwrap()
+    };
     assert!(!results.is_empty(), "Search should return results");
 
     // Verify result structure
@@ -89,21 +98,27 @@ fn test_full_pipeline() {
     }
 
     // 7. Re-index (should skip unchanged files)
-    let mut indexer2 = Indexer::new(&mut db, &embedder, 500);
-    let result2 = indexer2.index_directory(&docs_dir, false).unwrap();
+    let mut indexer2 = Indexer::new(db_arc.clone(), &embedder, 500);
+    let result2 = indexer2.index_directory(&docs_dir, false).await.unwrap();
     assert_eq!(result2.skipped, 3, "Should skip all 3 on second run");
     assert_eq!(result2.added, 0, "Should add 0 on second run");
 
     // 8. Force re-index
-    let mut indexer3 = Indexer::new(&mut db, &embedder, 500);
-    let result3 = indexer3.index_directory(&docs_dir, true).unwrap();
+    let mut indexer3 = Indexer::new(db_arc.clone(), &embedder, 500);
+    let result3 = indexer3.index_directory(&docs_dir, true).await.unwrap();
     assert_eq!(result3.updated, 3, "Should update all 3 when forced");
 
     // 9. Delete a document
     let hello_key = doc_names.iter().find(|n| n.contains("hello.md")).unwrap();
-    db.delete_document(hello_key).unwrap();
+    {
+        let db_lock = db_arc.lock().await;
+        db_lock.delete_document(hello_key).unwrap();
+    }
 
-    let docs_after = db.list_documents().unwrap();
+    let docs_after = {
+        let db_lock = db_arc.lock().await;
+        db_lock.list_documents().unwrap()
+    };
     assert_eq!(docs_after.len(), 2, "Should have 2 documents after delete");
     assert!(
         !docs_after.keys().any(|n| n.contains("hello.md")),

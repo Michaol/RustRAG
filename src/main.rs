@@ -135,12 +135,12 @@ async fn main() -> Result<()> {
 
                 tracing::info!(dir = %dir.display(), "Syncing directory");
 
-                // Lock db per-directory to minimize contention with MCP queries
+                // Pass the Arc<TokioMutex<Db>> directly, Indexer will lock per-file/operation
+                // to minimize contention with MCP queries
                 let result = {
-                    let mut db_guard = sync_db.lock().await;
                     let mut indexer =
-                        Indexer::new(&mut db_guard, sync_embedder.as_ref(), sync_chunk_size);
-                    indexer.index_directory(dir, false)
+                        Indexer::new(sync_db.clone(), sync_embedder.as_ref(), sync_chunk_size);
+                    indexer.index_directory(dir, false).await
                 };
 
                 match result {

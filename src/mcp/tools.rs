@@ -278,15 +278,22 @@ impl AppTools {
 
     // ── Tool 3: list_documents ──────────────────────────────────────
 
-    #[tool(description = "Retrieve list of indexed documents")]
+    #[tool(
+        description = "Retrieve list of indexed documents (limited to 500 results for stability)"
+    )]
     async fn list_documents(&self) -> Result<CallToolResult, McpError> {
         let db = self.ctx.db.lock().await;
         let docs = db
             .list_documents()
             .map_err(|e| McpError::internal_error(format!("list failed: {e}"), None))?;
 
+        let total_count = docs.len();
+        let limit = 500;
+        let has_more = total_count > limit;
+
         let documents: Vec<serde_json::Value> = docs
             .iter()
+            .take(limit)
             .map(|(filename, modified_at)| {
                 serde_json::json!({
                     "filename": filename,
@@ -295,7 +302,12 @@ impl AppTools {
             })
             .collect();
 
-        json_result(serde_json::json!({ "documents": documents }))
+        json_result(serde_json::json!({
+            "total_count": total_count,
+            "has_more": has_more,
+            "limit": limit,
+            "documents": documents
+        }))
     }
 
     // ── Tool 4: delete_document ─────────────────────────────────────
