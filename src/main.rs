@@ -39,9 +39,12 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
 
     // 2. Initialize tracing (output to stderr, since MCP uses stdio)
+    // Suppress ort's massive INFO-level ONNX Runtime memory allocation logs
+    // (official recommendation: https://ort.pyke.io/troubleshooting/logging)
+    let log_filter = format!("{},ort=warn", &cli.log_level);
     tracing_subscriber::fmt()
         .with_env_filter(
-            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(&cli.log_level)),
+            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(&log_filter)),
         )
         .with_writer(std::io::stderr)
         .init();
