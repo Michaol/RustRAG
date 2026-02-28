@@ -58,21 +58,19 @@ jobs:
 
             # 3. Extract it using Python (Pyke uses raw LZMA2 stream without headers, tar/7z fails)
             echo "Extracting using Python..."
-            python -c "
+            python -c "import textwrap; exec(textwrap.dedent('''
             import lzma, tarfile, io
             with open('ort.tar.lzma2', 'rb') as f:
                 data = f.read()
-            # Pyke uses raw LZMA2 stream with 64MB dict size
             filters = [{'id': lzma.FILTER_LZMA2, 'dict_size': 67108864}]
             decompressed = lzma.decompress(data, format=lzma.FORMAT_RAW, filters=filters)
             tar_stream = io.BytesIO(decompressed)
-            # filter='data' prevents deprecation warnings and extraction of unsafe targets in Python 3.12+
             with tarfile.open(fileobj=tar_stream, mode='r:') as tar:
                 try:
                     tar.extractall(path='output', filter='data')
                 except TypeError:
                     tar.extractall(path='output')
-            "
+            '''))"
           fi
 
           # 4. Create final archive
