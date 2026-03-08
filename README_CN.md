@@ -24,13 +24,42 @@
 
 ### 1. 安装
 
-从 [Releases](https://github.com/Michaol/RustRAG/releases) 下载对应平台的最新打包文件（例如 `rustrag-windows-x64.zip`）。
+从 [Releases](https://github.com/Michaol/RustRAG/releases) 下载对应平台的最新打包文件：
 
-**存放与配置要求：**
+| 平台        | 文件示例                     |
+| ----------- | ---------------------------- |
+| Windows x64 | `rustrag-windows-x64.zip`    |
+| macOS Intel | `rustrag-macos-x64.tar.gz`   |
+| macOS ARM   | `rustrag-macos-arm64.tar.gz` |
+| Linux x64   | `rustrag-linux-x64.tar.gz`   |
+| Linux ARM64 | `rustrag-linux-arm64.tar.gz` |
 
-1. 将下载的压缩包解压到一个固定的本地文件夹中（例如 `C:\Users\<YourName>\AppData\Local\RustRAG` 或 `~/rustrag`）。
-2. **重要**：Windows 用户请务必保持解压后的 `rustrag.exe` 与同目录下的 `.dll` 动态链接库文件（如 `onnxruntime.dll`）在一起。**切勿将 `rustrag.exe` 单独移动**，否则会因缺少 ONNX Runtime 运行时导致无法启动。
-3. 后续在 IDE 中直接填写该目录下的可执行文件绝对路径即可。
+**安装步骤：**
+
+#### Windows
+
+```powershell
+# 解压到固定目录
+Expand-Archive rustrag-windows-x64.zip -DestinationPath "$env:LOCALAPPDATA\RustRAG"
+```
+
+> ⚠️ **重要**：请务必保持 `rustrag.exe` 与同目录下的 `.dll` 文件（如 `onnxruntime.dll`）在一起。**切勿单独移走 exe**，否则会因缺少 ONNX Runtime 运行时导致无法启动。
+
+#### macOS
+
+```bash
+mkdir -p ~/rustrag && tar xzf rustrag-macos-arm64.tar.gz -C ~/rustrag
+chmod +x ~/rustrag/rustrag
+```
+
+#### Linux
+
+```bash
+mkdir -p ~/rustrag && tar xzf rustrag-linux-x64.tar.gz -C ~/rustrag
+chmod +x ~/rustrag/rustrag
+```
+
+解压完成后，在 IDE 配置 MCP Server 时填写 `rustrag` 可执行文件的**绝对路径**即可。
 
 或者你也可以从源码构建：
 

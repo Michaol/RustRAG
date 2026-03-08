@@ -24,13 +24,42 @@ A high-performance local RAG (Retrieval-Augmented Generation) MCP Server written
 
 ### 1. Install
 
-Download the latest release package for your platform from [Releases](https://github.com/Michaol/RustRAG/releases) (e.g., `rustrag-windows-x64.zip`).
+Download the latest release package for your platform from [Releases](https://github.com/Michaol/RustRAG/releases):
 
-**Extraction and Placement Guidelines:**
+| Platform    | Package Example              |
+| ----------- | ---------------------------- |
+| Windows x64 | `rustrag-windows-x64.zip`    |
+| macOS Intel | `rustrag-macos-x64.tar.gz`   |
+| macOS ARM   | `rustrag-macos-arm64.tar.gz` |
+| Linux x64   | `rustrag-linux-x64.tar.gz`   |
+| Linux ARM64 | `rustrag-linux-arm64.tar.gz` |
 
-1. Extract the downloaded archive to a permanent local directory (e.g., `C:\Users\<YourName>\AppData\Local\RustRAG` or `~/rustrag`).
-2. **IMPORTANT**: For Windows users, you **must keep** `rustrag.exe` in the same directory as the accompanying `.dll` files (e.g., `onnxruntime.dll`). **Do not move `rustrag.exe` individually**, as it requires the ONNX Runtime libraries to start.
-3. Use the absolute path to the executable in this directory when configuring your IDE MCP settings.
+**Installation Steps:**
+
+#### Windows
+
+```powershell
+# Extract to a permanent directory
+Expand-Archive rustrag-windows-x64.zip -DestinationPath "$env:LOCALAPPDATA\RustRAG"
+```
+
+> ⚠️ **IMPORTANT**: Keep `rustrag.exe` in the same directory as the accompanying `.dll` files (e.g., `onnxruntime.dll`). Do **not** move the exe individually — the ONNX Runtime libraries must remain alongside it.
+
+#### macOS
+
+```bash
+mkdir -p ~/rustrag && tar xzf rustrag-macos-arm64.tar.gz -C ~/rustrag
+chmod +x ~/rustrag/rustrag
+```
+
+#### Linux
+
+```bash
+mkdir -p ~/rustrag && tar xzf rustrag-linux-x64.tar.gz -C ~/rustrag
+chmod +x ~/rustrag/rustrag
+```
+
+After extraction, use the **absolute path** to the `rustrag` binary when configuring your IDE MCP settings.
 
 Alternatively, you can build from source:
 
