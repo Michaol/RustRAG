@@ -44,33 +44,32 @@ jobs:
             cp target/${{ matrix.target }}/release/rustrag output/
           fi
 
-          # 2. Download ONNX Runtime binary matching ort version
+          # 2. Download ONNX Runtime dynamic library from Microsoft official releases
+          ORT_VERSION="1.23.2"
           if [ "$RUNNER_OS" == "Windows" ]; then
-            echo "Downloading ONNX Runtime 1.23.2 for Windows..."
-            curl -sL "https://github.com/microsoft/onnxruntime/releases/download/v1.23.2/onnxruntime-win-x64-1.23.2.zip" -o ort.zip
-            echo "Extracting official ONNX Runtime DLL..."
+            echo "Downloading ONNX Runtime $ORT_VERSION for Windows..."
+            curl -sL "https://github.com/microsoft/onnxruntime/releases/download/v${ORT_VERSION}/onnxruntime-win-x64-${ORT_VERSION}.zip" -o ort.zip
             7z x ort.zip
-            cp onnxruntime-win-x64-1.23.2/lib/onnxruntime.dll output/
-            cp onnxruntime-win-x64-1.23.2/lib/onnxruntime_providers_shared.dll output/ || true
+            cp onnxruntime-win-x64-${ORT_VERSION}/lib/onnxruntime.dll output/
+            cp onnxruntime-win-x64-${ORT_VERSION}/lib/onnxruntime_providers_shared.dll output/ || true
+          elif [ "$RUNNER_OS" == "macOS" ]; then
+            echo "Downloading ONNX Runtime $ORT_VERSION for macOS (${{ matrix.target }})..."
+            curl -sL "https://github.com/microsoft/onnxruntime/releases/download/v${ORT_VERSION}/onnxruntime-osx-arm64-${ORT_VERSION}.tgz" -o ort.tgz
+            tar xzf ort.tgz
+            cp onnxruntime-osx-arm64-${ORT_VERSION}/lib/libonnxruntime.dylib output/
+            cp onnxruntime-osx-arm64-${ORT_VERSION}/lib/libonnxruntime.${ORT_VERSION}.dylib output/ || true
           else
-            echo "Downloading ONNX Runtime 1.23.2 for ${{ matrix.target }}..."
-            curl -sL "https://cdn.pyke.io/0/pyke:ort-rs/ms@1.23.2/${{ matrix.target }}.tar.lzma2" -o ort.tar.lzma2
-
-            # 3. Extract it using Python (Pyke uses raw LZMA2 stream without headers, tar/7z fails)
-            echo "Extracting using Python..."
-            python -c "import textwrap; exec(textwrap.dedent('''
-            import lzma, tarfile, io
-            with open('ort.tar.lzma2', 'rb') as f:
-                data = f.read()
-            filters = [{'id': lzma.FILTER_LZMA2, 'dict_size': 67108864}]
-            decompressed = lzma.decompress(data, format=lzma.FORMAT_RAW, filters=filters)
-            tar_stream = io.BytesIO(decompressed)
-            with tarfile.open(fileobj=tar_stream, mode='r:') as tar:
-                try:
-                    tar.extractall(path='output', filter='data')
-                except TypeError:
-                    tar.extractall(path='output')
-            '''))"
+            # Linux
+            if [ "${{ matrix.target }}" == "aarch64-unknown-linux-gnu" ]; then
+              ORT_ARCH="linux-aarch64"
+            else
+              ORT_ARCH="linux-x64"
+            fi
+            echo "Downloading ONNX Runtime $ORT_VERSION for Linux (${ORT_ARCH})..."
+            curl -sL "https://github.com/microsoft/onnxruntime/releases/download/v${ORT_VERSION}/onnxruntime-${ORT_ARCH}-${ORT_VERSION}.tgz" -o ort.tgz
+            tar xzf ort.tgz
+            cp onnxruntime-${ORT_ARCH}-${ORT_VERSION}/lib/libonnxruntime.so output/
+            cp onnxruntime-${ORT_ARCH}-${ORT_VERSION}/lib/libonnxruntime.so.${ORT_VERSION} output/ || true
           fi
 
           # 4. Create final archive

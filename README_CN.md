@@ -26,13 +26,12 @@
 
 从 [Releases](https://github.com/Michaol/RustRAG/releases) 下载对应平台的最新打包文件：
 
-| 平台        | 文件示例                     |
-| ----------- | ---------------------------- |
-| Windows x64 | `rustrag-windows-x64.zip`    |
-| macOS Intel | `rustrag-macos-x64.tar.gz`   |
-| macOS ARM   | `rustrag-macos-arm64.tar.gz` |
-| Linux x64   | `rustrag-linux-x64.tar.gz`   |
-| Linux ARM64 | `rustrag-linux-arm64.tar.gz` |
+| 平台                | 文件示例                             |
+| ------------------- | ------------------------------------ |
+| Windows x64         | `rustrag-windows-x64.exe.zip`        |
+| macOS Apple Silicon | `rustrag-macos-apple-silicon.tar.gz` |
+| Linux x64           | `rustrag-linux-x64.tar.gz`           |
+| Linux ARM64         | `rustrag-linux-arm64.tar.gz`         |
 
 **安装步骤：**
 
@@ -48,7 +47,7 @@ Expand-Archive rustrag-windows-x64.zip -DestinationPath "$env:LOCALAPPDATA\RustR
 #### macOS
 
 ```bash
-mkdir -p ~/rustrag && tar xzf rustrag-macos-arm64.tar.gz -C ~/rustrag
+mkdir -p ~/rustrag && tar xzf rustrag-macos-apple-silicon.tar.gz -C ~/rustrag
 chmod +x ~/rustrag/rustrag
 ```
 
