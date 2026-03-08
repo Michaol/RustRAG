@@ -15,6 +15,14 @@ fn default_document_patterns() -> Vec<String> {
     vec!["./".to_string()]
 }
 
+fn default_exclude_patterns() -> Vec<String> {
+    vec![
+        "**/node_modules/**".to_string(),
+        "**/target/**".to_string(),
+        "**/.git/**".to_string(),
+    ]
+}
+
 fn default_db_path() -> String {
     "./vectors.db".to_string()
 }
@@ -53,6 +61,12 @@ pub struct Config {
 
     #[serde(default = "default_document_patterns")]
     pub document_patterns: Vec<String>,
+
+    #[serde(default = "default_exclude_patterns")]
+    pub exclude_patterns: Vec<String>,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub file_extensions: Option<Vec<String>>,
 
     #[serde(default = "default_db_path")]
     pub db_path: String,
@@ -98,6 +112,8 @@ impl Default for Config {
         Self {
             documents_dir: None,
             document_patterns: default_document_patterns(),
+            exclude_patterns: default_exclude_patterns(),
+            file_extensions: None,
             db_path: default_db_path(),
             chunk_size: default_chunk_size(),
             search_top_k: default_search_top_k(),
@@ -395,6 +411,8 @@ mod tests {
         let config = Config::default();
         assert_eq!(config.chunk_size, 500);
         assert_eq!(config.search_top_k, 5);
+        assert_eq!(config.exclude_patterns.len(), 3);
+        assert!(config.file_extensions.is_none());
         assert_eq!(config.model.dimensions, 384);
         assert_eq!(config.model.name, "multilingual-e5-small");
         assert_eq!(config.compute.device, "auto");

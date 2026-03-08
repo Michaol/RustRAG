@@ -505,20 +505,41 @@ impl AppTools {
         // Directory indexing — for code, we reuse the single-file approach on each file
         if let Some(dir) = &p.directory {
             let force = p.force.unwrap_or(false);
-            let walker = ignore::WalkBuilder::new(dir).hidden(false).build();
+
+            // Build overrides from config
+            let mut overrides = ignore::overrides::OverrideBuilder::new(dir);
+            for pattern in &self.ctx.config.exclude_patterns {
+                let _ = overrides.add(&format!("!{}", pattern));
+            }
+            let override_matcher = overrides.build().unwrap_or_else(|_| {
+                ignore::overrides::OverrideBuilder::new(dir)
+                    .build()
+                    .unwrap()
+            });
+
+            let walker = ignore::WalkBuilder::new(dir)
+                .hidden(false)
+                .overrides(override_matcher)
+                .build();
+
             let mut success_count = 0u32;
             let mut skip_count = 0u32;
             let mut fail_count = 0u32;
-
-            let supported = ["go", "py", "rs", "ts", "js"];
 
             for entry in walker.into_iter().filter_map(|e| e.ok()) {
                 let path = entry.path();
                 if path.is_dir() {
                     continue;
                 }
+
                 let ext = path.extension().and_then(|s| s.to_str()).unwrap_or("");
-                if !supported.contains(&ext) {
+                let base_supported = matches!(ext, "md" | "rs" | "go" | "py" | "js" | "ts");
+                let is_supported = match &self.ctx.config.file_extensions {
+                    Some(exts) => base_supported && exts.iter().any(|e| e == ext),
+                    None => base_supported,
+                };
+
+                if !is_supported {
                     continue;
                 }
 

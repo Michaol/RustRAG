@@ -1,4 +1,4 @@
-use super::{Db, models::*, serialize_vector};
+use super::{Db, models::*, serialize_vector_int8};
 use chrono::{DateTime, Utc};
 use rusqlite::{OptionalExtension, Result, params};
 use std::collections::HashMap;
@@ -22,6 +22,21 @@ impl Db {
         }
 
         Ok(docs)
+    }
+
+    pub fn delete_documents_by_prefix(&self, prefix: &str) -> Result<usize> {
+        let like_pattern = format!("{}%", prefix.replace("\\", "/"));
+        let tx = self.conn.unchecked_transaction()?;
+        tx.execute(
+            "DELETE FROM vec_chunks WHERE rowid IN (SELECT c.id FROM chunks c JOIN documents d ON c.document_id = d.id WHERE d.filename LIKE ?)",
+            params![like_pattern],
+        )?;
+        let rows = tx.execute(
+            "DELETE FROM documents WHERE filename LIKE ?",
+            params![like_pattern],
+        )?;
+        tx.commit()?;
+        Ok(rows)
     }
 
     /// Deletes a document and its associated chunks from the database
@@ -97,9 +112,9 @@ impl Db {
             )?;
             let chunk_id = tx.last_insert_rowid();
 
-            let vector_blob = serialize_vector(&embeddings[i]);
+            let vector_blob = serialize_vector_int8(&embeddings[i]);
             tx.execute(
-                "INSERT INTO vec_chunks (rowid, embedding) VALUES (?, ?)",
+                "INSERT INTO vec_chunks (rowid, embedding) VALUES (?, vec_int8(?))",
                 params![chunk_id, vector_blob],
             )?;
         }
@@ -184,9 +199,9 @@ impl Db {
             )?;
             let chunk_id = tx.last_insert_rowid();
 
-            let vector_blob = serialize_vector(&embeddings[i]);
+            let vector_blob = serialize_vector_int8(&embeddings[i]);
             tx.execute(
-                "INSERT INTO vec_chunks (rowid, embedding) VALUES (?, ?)",
+                "INSERT INTO vec_chunks (rowid, embedding) VALUES (?, vec_int8(?))",
                 params![chunk_id, vector_blob],
             )?;
 

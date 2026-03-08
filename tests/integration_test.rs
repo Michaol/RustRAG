@@ -43,13 +43,14 @@ async fn test_full_pipeline() {
     let embedder = MockEmbedder::default();
 
     // 4. Index via Indexer
-    let mut indexer = Indexer::new(db_arc.clone(), &embedder, 500);
+    let mut indexer = Indexer::new(db_arc.clone(), &embedder, 500, Arc::new(Config::default()));
     let result = indexer.index_directory(&docs_dir, false).await.unwrap();
 
     assert_eq!(result.added, 3, "Should index 3 markdown files");
     assert_eq!(result.indexed, 3, "Should report 3 indexed");
     assert_eq!(result.skipped, 0, "Should skip 0 on first run");
     assert_eq!(result.failed, 0, "Should have 0 failures");
+    assert_eq!(result.removed, 0, "Should have 0 removals");
 
     // 5. List documents
     let docs = {
@@ -98,31 +99,58 @@ async fn test_full_pipeline() {
     }
 
     // 7. Re-index (should skip unchanged files)
-    let mut indexer2 = Indexer::new(db_arc.clone(), &embedder, 500);
+    let mut indexer2 = Indexer::new(db_arc.clone(), &embedder, 500, Arc::new(Config::default()));
     let result2 = indexer2.index_directory(&docs_dir, false).await.unwrap();
     assert_eq!(result2.skipped, 3, "Should skip all 3 on second run");
     assert_eq!(result2.added, 0, "Should add 0 on second run");
 
     // 8. Force re-index
-    let mut indexer3 = Indexer::new(db_arc.clone(), &embedder, 500);
+    let mut indexer3 = Indexer::new(db_arc.clone(), &embedder, 500, Arc::new(Config::default()));
     let result3 = indexer3.index_directory(&docs_dir, true).await.unwrap();
     assert_eq!(result3.updated, 3, "Should update all 3 when forced");
+    assert_eq!(result3.removed, 0, "Should have 0 removals when forced");
 
-    // 9. Delete a document
-    let hello_key = doc_names.iter().find(|n| n.contains("hello.md")).unwrap();
+    // 9. Stale Cleanup verification (Physical delete & re-sync)
+    let hello_path = docs_dir.join("hello.md");
+    std::fs::remove_file(&hello_path).unwrap();
+
+    let mut indexer4 = Indexer::new(db_arc.clone(), &embedder, 500, Arc::new(Config::default()));
+    let result4 = indexer4.index_directory(&docs_dir, false).await.unwrap();
+    assert_eq!(result4.removed, 1, "Should detect and remove 1 stale file");
+    assert_eq!(
+        result4.skipped, 2,
+        "Should skip the remaining 2 existing files"
+    );
+
+    let docs_after_sync = {
+        let db_lock = db_arc.lock().await;
+        db_lock.list_documents().unwrap()
+    };
+    assert_eq!(
+        docs_after_sync.len(),
+        2,
+        "Should have 2 documents left after stale cleanup"
+    );
+    assert!(
+        !docs_after_sync.keys().any(|n| n.contains("hello.md")),
+        "hello.md should be deleted from db"
+    );
+
+    // 10. Manual Delete API verify
+    let guide_key = doc_names.iter().find(|n| n.contains("guide.md")).unwrap();
     {
         let db_lock = db_arc.lock().await;
-        db_lock.delete_document(hello_key).unwrap();
+        db_lock.delete_document(guide_key).unwrap();
     }
 
     let docs_after = {
         let db_lock = db_arc.lock().await;
         db_lock.list_documents().unwrap()
     };
-    assert_eq!(docs_after.len(), 2, "Should have 2 documents after delete");
-    assert!(
-        !docs_after.keys().any(|n| n.contains("hello.md")),
-        "hello.md should be deleted"
+    assert_eq!(
+        docs_after.len(),
+        1,
+        "Should have 1 documents after manual delete"
     );
 }
 

@@ -7,6 +7,7 @@ use std::path::Path;
 use std::sync::Mutex;
 
 use ort::session::Session;
+use ort::session::builder::GraphOptimizationLevel;
 use ort::value::Tensor;
 use tracing::info;
 
@@ -34,10 +35,12 @@ impl OnnxEmbedder {
             )));
         }
 
-        info!("Initializing ONNX Runtime...");
+        info!("Initializing ONNX Runtime with Level 3 Graph Optimization...");
 
         let session = Session::builder()
             .map_err(|e| EmbedderError::ModelLoadFailed(format!("session builder error: {e}")))?
+            .with_optimization_level(GraphOptimizationLevel::Level3)
+            .map_err(|e| EmbedderError::ModelLoadFailed(format!("optimization error: {e}")))?
             .with_intra_threads(4)
             .map_err(|e| EmbedderError::ModelLoadFailed(format!("thread config error: {e}")))?
             .with_inter_threads(4)

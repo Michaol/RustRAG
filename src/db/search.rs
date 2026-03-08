@@ -1,4 +1,4 @@
-use super::{Db, serialize_vector};
+use super::{Db, serialize_vector_int8};
 use rusqlite::Result;
 use rusqlite::types::Value;
 
@@ -93,7 +93,7 @@ impl Db {
                 c.content,
                 c.position,
                 c.id as chunk_id,
-                vec_distance_cosine(v.embedding, ?) as distance,
+                vec_distance_cosine(v.embedding, vec_int8(?)) as distance,
                 cm.symbol_name,
                 cm.symbol_type,
                 cm.language,
@@ -109,7 +109,7 @@ impl Db {
         );
 
         let mut where_clauses = Vec::new();
-        let mut params: Vec<Value> = vec![Value::Blob(serialize_vector(query_vector))];
+        let mut params: Vec<Value> = vec![Value::Blob(serialize_vector_int8(query_vector))];
 
         if let Some(f) = filter {
             if let Some(dir) = f.directory {

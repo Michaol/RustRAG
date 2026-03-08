@@ -1,8 +1,10 @@
+use crate::config::Config;
 use crate::db::Db;
 use crate::embedder::Embedder;
 use crate::indexer::markdown;
 use chrono::{DateTime, Utc};
 use ignore::WalkBuilder;
+use ignore::overrides::OverrideBuilder;
 use std::path::Path;
 use std::sync::Arc;
 use tokio::sync::Mutex as TokioMutex;
@@ -14,26 +16,38 @@ pub struct CodeSyncResult {
     pub failed: usize,
     pub added: usize,
     pub updated: usize,
+    pub removed: usize,
 }
 
 pub struct Indexer<'a, E: Embedder + ?Sized> {
     pub db: Arc<TokioMutex<Db>>,
     pub embedder: &'a E,
     pub chunk_size: usize,
+    pub config: Arc<Config>,
 }
 
 impl<'a, E: Embedder + ?Sized> Indexer<'a, E> {
-    pub fn new(db: Arc<TokioMutex<Db>>, embedder: &'a E, chunk_size: usize) -> Self {
+    pub fn new(
+        db: Arc<TokioMutex<Db>>,
+        embedder: &'a E,
+        chunk_size: usize,
+        config: Arc<Config>,
+    ) -> Self {
         Self {
             db,
             embedder,
             chunk_size,
+            config,
         }
     }
 
     /// Checks if a file extension is supported
-    fn is_supported_extension(ext: &str) -> bool {
-        matches!(ext, "md" | "rs" | "go" | "py" | "js" | "ts")
+    fn is_supported_extension(&self, ext: &str) -> bool {
+        let base_supported = matches!(ext, "md" | "rs" | "go" | "py" | "js" | "ts");
+        match &self.config.file_extensions {
+            Some(exts) => base_supported && exts.iter().any(|e| e == ext),
+            None => base_supported,
+        }
     }
 
     /// Indexes all supported files in a directory with differential sync
@@ -43,6 +57,33 @@ impl<'a, E: Embedder + ?Sized> Indexer<'a, E> {
         force: bool,
     ) -> Result<CodeSyncResult, Box<dyn std::error::Error>> {
         let dir = dir.as_ref();
+        let dir_str = dir.to_string_lossy().replace("\\", "/");
+
+        // PHASE 4: Config Hot Reload & Hash Check
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        std::hash::Hash::hash(&self.config.exclude_patterns, &mut hasher);
+        std::hash::Hash::hash(&self.config.file_extensions, &mut hasher);
+        let config_hash = std::hash::Hasher::finish(&hasher).to_string();
+        let meta_key = format!("dir_hash:{}", dir_str);
+
+        {
+            let db_guard = self.db.lock().await;
+            let stored = db_guard.get_metadata(&meta_key).unwrap_or(None);
+            let should_rebuild = stored.as_deref() != Some(config_hash.as_str());
+
+            if should_rebuild && !force {
+                tracing::info!(
+                    "Configuration filter change detected for {}. Purging previous index.",
+                    dir.display()
+                );
+                if let Ok(removed) = db_guard.delete_documents_by_prefix(&dir_str) {
+                    tracing::info!("Purged {} stale documents due to config change.", removed);
+                }
+                let _ = db_guard.set_metadata(&meta_key, &config_hash);
+            } else if force && should_rebuild {
+                let _ = db_guard.set_metadata(&meta_key, &config_hash);
+            }
+        }
 
         // Get existing documents from DB map(filename -> modified_at)
         let existing_docs = {
@@ -50,10 +91,24 @@ impl<'a, E: Embedder + ?Sized> Indexer<'a, E> {
             db_guard.list_documents()?
         };
 
+        let mut visited_paths = std::collections::HashSet::new();
+
         let mut result = CodeSyncResult::default();
 
+        // Build overrides from config
+        let mut overrides = OverrideBuilder::new(dir);
+        for pattern in &self.config.exclude_patterns {
+            let _ = overrides.add(&format!("!{}", pattern));
+        }
+        let override_matcher = overrides
+            .build()
+            .unwrap_or_else(|_| OverrideBuilder::new(dir).build().unwrap());
+
         // Walk builder respects .gitignore by default
-        let walker = WalkBuilder::new(dir).hidden(false).build();
+        let walker = WalkBuilder::new(dir)
+            .hidden(false)
+            .overrides(override_matcher)
+            .build();
 
         for entry in walker.into_iter().filter_map(|e| e.ok()) {
             let path = entry.path();
@@ -65,7 +120,7 @@ impl<'a, E: Embedder + ?Sized> Indexer<'a, E> {
                 .extension()
                 .and_then(|s| s.to_str())
                 .unwrap_or_default();
-            if !Self::is_supported_extension(ext) {
+            if !self.is_supported_extension(ext) {
                 continue;
             }
 
@@ -73,6 +128,7 @@ impl<'a, E: Embedder + ?Sized> Indexer<'a, E> {
             // Using to_string_lossy() provides the OS path, which is fine as a unique key.
             // Replace backslashes with forward slashes for cross-platform consistency.
             let path_str = path.to_string_lossy().replace("\\", "/");
+            visited_paths.insert(path_str.clone());
 
             let metadata = entry.metadata()?;
             let mod_time: DateTime<Utc> = metadata.modified()?.into();
@@ -108,6 +164,18 @@ impl<'a, E: Embedder + ?Sized> Indexer<'a, E> {
                     } else if result.added > 0 {
                         result.added -= 1;
                     }
+                }
+            }
+        }
+
+        // Phase 2: Stale Cleanup
+        // Find existing documents that start with the target directory but were not visited
+        let dir_str = dir.to_string_lossy().replace("\\", "/");
+        for db_path in existing_docs.keys() {
+            if db_path.starts_with(&dir_str) && !visited_paths.contains(db_path) {
+                let db_guard = self.db.lock().await;
+                if let Ok(true) = db_guard.delete_document(db_path) {
+                    result.removed += 1;
                 }
             }
         }
@@ -227,7 +295,12 @@ mod tests {
         let db = Db::open_in_memory().unwrap();
         let db_arc = Arc::new(TokioMutex::new(db));
         let embedder = MockEmbedder::default();
-        let mut indexer = Indexer::new(db_arc.clone(), &embedder, 500);
+        let mut indexer = Indexer::new(
+            db_arc.clone(),
+            &embedder,
+            500,
+            Arc::new(crate::config::Config::default()),
+        );
 
         // First sync
         let res1 = indexer.index_directory(dir_path, false).await.unwrap();

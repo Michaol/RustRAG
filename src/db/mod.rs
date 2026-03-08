@@ -31,7 +31,7 @@ CREATE TABLE IF NOT EXISTS chunks (
 CREATE INDEX IF NOT EXISTS idx_document_id ON chunks(document_id);
 
 CREATE VIRTUAL TABLE IF NOT EXISTS vec_chunks USING vec0(
-    embedding FLOAT[384]
+    embedding INT8[384]
 );
 
 CREATE TABLE IF NOT EXISTS code_metadata (
@@ -67,6 +67,12 @@ CREATE INDEX IF NOT EXISTS idx_rel_source ON code_relations(source_chunk_id);
 CREATE INDEX IF NOT EXISTS idx_rel_target ON code_relations(target_chunk_id);
 CREATE INDEX IF NOT EXISTS idx_rel_type ON code_relations(relation_type);
 CREATE INDEX IF NOT EXISTS idx_rel_name ON code_relations(target_name);
+
+CREATE TABLE IF NOT EXISTS system_metadata (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
 
 CREATE TABLE IF NOT EXISTS word_mapping (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -126,7 +132,27 @@ impl Db {
         Ok(Self { conn })
     }
 
-    /// Open an in-memory database connection (useful for testing).
+    pub fn get_metadata(&self, key: &str) -> Result<Option<String>> {
+        let res = self.conn.query_row(
+            "SELECT value FROM system_metadata WHERE key = ?",
+            [key],
+            |row| row.get(0),
+        );
+        match res {
+            Ok(v) => Ok(Some(v)),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(e) => Err(e),
+        }
+    }
+
+    pub fn set_metadata(&self, key: &str, value: &str) -> Result<()> {
+        self.conn.execute(
+            "INSERT INTO system_metadata (key, value) VALUES (?1, ?2) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP",
+            [key, value],
+        )?;
+        Ok(())
+    }
+
     pub fn open_in_memory() -> Result<Self> {
         init_sqlite_vec();
         let conn = Connection::open_in_memory()?;
@@ -138,11 +164,14 @@ impl Db {
     }
 }
 
-/// Helper to serialize a float32 vector into bytes for vec0 virtual table
-pub fn serialize_vector(vec: &[f32]) -> Vec<u8> {
-    let mut bytes = Vec::with_capacity(vec.len() * 4);
-    for v in vec {
-        bytes.extend_from_slice(&v.to_le_bytes());
+/// Helper to serialize a float32 vector into a scalar-quantized int8 vector blob
+pub fn serialize_vector_int8(vec: &[f32]) -> Vec<u8> {
+    let mut bytes = Vec::with_capacity(vec.len());
+    for &v in vec {
+        // Clamp to [-1.0, 1.0] and scale to [-127, 127]
+        let clamped = v.clamp(-1.0, 1.0);
+        let q = (clamped * 127.0).round() as i8;
+        bytes.push(q as u8); // Store purely as 1-byte
     }
     bytes
 }
@@ -167,16 +196,24 @@ mod tests {
     }
 
     #[test]
-    fn test_serialize_vector() {
-        let vec = vec![1.0, 2.0, -3.5];
-        let bytes = serialize_vector(&vec);
-        assert_eq!(bytes.len(), 12);
+    fn test_serialize_vector_int8() {
+        // Some boundary float variables
+        let vec = vec![1.0, 0.0, -1.0, 0.5, -0.5, 2.0, -2.0];
+        let bytes = serialize_vector_int8(&vec);
+        assert_eq!(bytes.len(), 7); // Should be exactly 1 byte per dimension
 
-        // 1.0f32 in hex: 0x3f800000 -> little endian: 00 00 80 3f
-        assert_eq!(&bytes[0..4], &[0x00, 0x00, 0x80, 0x3f]);
-        // 2.0f32 in hex: 0x40000000 -> little endian: 00 00 00 40
-        assert_eq!(&bytes[4..8], &[0x00, 0x00, 0x00, 0x40]);
-        // -3.5f32 in hex: 0xc0600000 -> little endian: 00 00 60 c0
-        assert_eq!(&bytes[8..12], &[0x00, 0x00, 0x60, 0xc0]);
+        // 1.0 -> 127
+        assert_eq!(bytes[0], 127);
+        // 0.0 -> 0
+        assert_eq!(bytes[1], 0);
+        // -1.0 -> -127 (which is 129 in 2's complement u8 representation, technically 256 - 127 = 129, actually -127 as i8 is 129 in u8)
+        assert_eq!(bytes[2], 129);
+        // 0.5 -> 64
+        assert_eq!(bytes[3], 64);
+        // -0.5 -> -64 (which is 192)
+        assert_eq!(bytes[4], 192);
+        // Out of bounds checking (clamped to 1.0 and -1.0)
+        assert_eq!(bytes[5], 127);
+        assert_eq!(bytes[6], 129);
     }
 }

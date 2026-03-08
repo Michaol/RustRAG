@@ -138,8 +138,12 @@ async fn main() -> Result<()> {
                 // Pass the Arc<TokioMutex<Db>> directly, Indexer will lock per-file/operation
                 // to minimize contention with MCP queries
                 let result = {
-                    let mut indexer =
-                        Indexer::new(sync_db.clone(), sync_embedder.as_ref(), sync_chunk_size);
+                    let mut indexer = Indexer::new(
+                        sync_db.clone(),
+                        sync_embedder.as_ref(),
+                        sync_chunk_size,
+                        sync_config.clone(),
+                    );
                     indexer.index_directory(dir, false).await
                 };
 
