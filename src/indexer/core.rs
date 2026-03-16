@@ -136,10 +136,8 @@ impl<'a, E: Embedder + ?Sized> Indexer<'a, E> {
                 continue;
             }
 
-            // In Windows, path separator is '\', but we should store consistent paths.
-            // Using to_string_lossy() provides the OS path, which is fine as a unique key.
-            // Replace backslashes with forward slashes for cross-platform consistency.
-            let path_str = path.to_string_lossy().replace("\\", "/");
+            // Enforce consistent absolute system paths for all documents
+            let path_str = normalize_system_path(path);
             visited_paths.insert(path_str.clone());
 
             let metadata = entry.metadata()?;
