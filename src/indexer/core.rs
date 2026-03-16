@@ -215,7 +215,9 @@ impl<'a, E: Embedder + ?Sized> Indexer<'a, E> {
         let success = if ext == "md" {
             self.index_markdown(path, &path_str, mod_time).await.is_ok()
         } else {
-            self.index_code_file(path, &path_str, mod_time).await.is_ok()
+            self.index_code_file(path, &path_str, mod_time)
+                .await
+                .is_ok()
         };
 
         Ok(success)

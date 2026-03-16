@@ -130,7 +130,8 @@ impl McpServer {
         let service = StreamableHttpService::new(
             move || {
                 let app_tools = AppTools::new(ctx.clone());
-                let router = Router::new(app_tools.clone()).with_tools(app_tools.tool_router.clone());
+                let router =
+                    Router::new(app_tools.clone()).with_tools(app_tools.tool_router.clone());
                 Ok(router)
             },
             session_manager,

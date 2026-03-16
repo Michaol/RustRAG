@@ -136,9 +136,9 @@ impl Embedder for OnnxEmbedder {
             let all_tokens: Vec<_> = chunk_texts
                 .iter()
                 .map(|t| {
-                    self.tokenizer
-                        .tokenize(t)
-                        .map_err(|e| EmbedderError::InferenceFailed(format!("tokenization failed: {e}")))
+                    self.tokenizer.tokenize(t).map_err(|e| {
+                        EmbedderError::InferenceFailed(format!("tokenization failed: {e}"))
+                    })
                 })
                 .collect::<Result<Vec<_>, _>>()?;
 
@@ -161,8 +161,8 @@ impl Embedder for OnnxEmbedder {
             }
 
             // 4. Create batch tensors: shape [batch_size, max_seq_len]
-            let input_ids_val =
-                Tensor::from_array(([batch_size, max_seq_len], input_ids_flat)).map_err(|e| {
+            let input_ids_val = Tensor::from_array(([batch_size, max_seq_len], input_ids_flat))
+                .map_err(|e| {
                     EmbedderError::InferenceFailed(format!("batch input_ids error: {e}"))
                 })?;
             let attention_mask_val =
@@ -171,9 +171,9 @@ impl Embedder for OnnxEmbedder {
                         EmbedderError::InferenceFailed(format!("batch attention_mask error: {e}"))
                     })?;
             let token_type_ids_val =
-                Tensor::from_array(([batch_size, max_seq_len], token_type_ids_flat)).map_err(|e| {
-                    EmbedderError::InferenceFailed(format!("batch token_type_ids error: {e}"))
-                })?;
+                Tensor::from_array(([batch_size, max_seq_len], token_type_ids_flat)).map_err(
+                    |e| EmbedderError::InferenceFailed(format!("batch token_type_ids error: {e}")),
+                )?;
 
             // 5. Single inference call for the chunk
             let mut session = self
@@ -186,7 +186,9 @@ impl Embedder for OnnxEmbedder {
                     "attention_mask" => attention_mask_val,
                     "token_type_ids" => token_type_ids_val,
                 ])
-                .map_err(|e| EmbedderError::InferenceFailed(format!("batch inference failed: {e}")))?;
+                .map_err(|e| {
+                    EmbedderError::InferenceFailed(format!("batch inference failed: {e}"))
+                })?;
 
             // 6. Extract output: shape [batch_size, max_seq_len, hidden_size]
             let (_shape, hidden_data) = outputs[0]

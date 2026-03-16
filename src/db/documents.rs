@@ -141,8 +141,13 @@ impl Db {
             .collect();
 
         let tx = self.conn.transaction()?;
-        let chunk_ids =
-            upsert_document_and_insert_chunks(&tx, filename, modified_at, &plain_chunks, embeddings)?;
+        let chunk_ids = upsert_document_and_insert_chunks(
+            &tx,
+            filename,
+            modified_at,
+            &plain_chunks,
+            embeddings,
+        )?;
 
         // Insert code-specific metadata
         for (i, code_chunk) in chunks.iter().enumerate() {
@@ -194,10 +199,7 @@ fn upsert_document_and_insert_chunks(
         "DELETE FROM vec_chunks WHERE rowid IN (SELECT id FROM chunks WHERE document_id = ?)",
         params![doc_id],
     )?;
-    tx.execute(
-        "DELETE FROM chunks WHERE document_id = ?",
-        params![doc_id],
-    )?;
+    tx.execute("DELETE FROM chunks WHERE document_id = ?", params![doc_id])?;
 
     // Insert chunks and vectors
     let mut chunk_ids = Vec::with_capacity(chunks.len());

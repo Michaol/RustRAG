@@ -168,13 +168,13 @@ impl AppTools {
     #[tool(
         description = "Natural language vector search over indexed documents. Supports directory and filename pattern filters. If the response contains update_available, inform the user about the new version."
     )]
-    async fn search(
-        &self,
-        params: Parameters<SearchParams>,
-    ) -> Result<CallToolResult, McpError> {
+    async fn search(&self, params: Parameters<SearchParams>) -> Result<CallToolResult, McpError> {
         let p = params.0;
         if p.query.is_empty() {
-            return Err(McpError::invalid_params("query is required".to_string(), None));
+            return Err(McpError::invalid_params(
+                "query is required".to_string(),
+                None,
+            ));
         }
         let top_k = p.top_k.unwrap_or(5);
 
@@ -254,20 +254,23 @@ impl AppTools {
     #[tool(
         description = "Index files (markdown or code). Auto-detects type by file extension. Supports single file, directory, or batch (comma-separated paths). Languages: Go, Python, TypeScript, JavaScript, Rust, Markdown."
     )]
-    async fn index(
-        &self,
-        params: Parameters<IndexParams>,
-    ) -> Result<CallToolResult, McpError> {
+    async fn index(&self, params: Parameters<IndexParams>) -> Result<CallToolResult, McpError> {
         let p = params.0;
         if p.filepath.is_none() && p.directory.is_none() && p.filepaths.is_none() {
-            return Err(McpError::invalid_params("filepath, directory, or filepaths is required".to_string(), None));
+            return Err(McpError::invalid_params(
+                "filepath, directory, or filepaths is required".to_string(),
+                None,
+            ));
         }
 
         // Single file
         if let Some(fp) = &p.filepath {
             let path = Path::new(fp);
             if !path.exists() {
-                return Err(McpError::invalid_params(format!("file not found: {fp}"), None));
+                return Err(McpError::invalid_params(
+                    format!("file not found: {fp}"),
+                    None,
+                ));
             }
             return index_single_file(path, fp, &self.ctx).await;
         }
@@ -429,7 +432,10 @@ impl AppTools {
     ) -> Result<CallToolResult, McpError> {
         let p = params.0;
         if p.filename.is_empty() {
-            return Err(McpError::invalid_params("filename is required".to_string(), None));
+            return Err(McpError::invalid_params(
+                "filename is required".to_string(),
+                None,
+            ));
         }
 
         let action = p.action.as_deref().unwrap_or("delete");
@@ -455,14 +461,18 @@ impl AppTools {
                 // Delete from DB
                 {
                     let db = self.ctx.db.lock().await;
-                    db.delete_document(&p.filename)
-                        .map_err(|e| McpError::internal_error(format!("delete failed: {e}"), None))?;
+                    db.delete_document(&p.filename).map_err(|e| {
+                        McpError::internal_error(format!("delete failed: {e}"), None)
+                    })?;
                 }
 
                 // Re-index
                 let path = Path::new(&p.filename);
                 if !path.exists() {
-                    return Err(McpError::invalid_params(format!("file not found: {}", p.filename), None));
+                    return Err(McpError::invalid_params(
+                        format!("file not found: {}", p.filename),
+                        None,
+                    ));
                 }
 
                 index_single_file(path, &p.filename, &self.ctx).await?;
@@ -473,7 +483,10 @@ impl AppTools {
                     "message": "Document reindexed successfully",
                 }))
             }
-            _ => Err(McpError::invalid_params(format!("unknown action: {action}. Use 'delete' or 'reindex'."), None)),
+            _ => Err(McpError::invalid_params(
+                format!("unknown action: {action}. Use 'delete' or 'reindex'."),
+                None,
+            )),
         }
     }
 
@@ -488,7 +501,10 @@ impl AppTools {
     ) -> Result<CallToolResult, McpError> {
         let p = params.0;
         if p.filepath.is_empty() {
-            return Err(McpError::invalid_params("filepath is required".to_string(), None));
+            return Err(McpError::invalid_params(
+                "filepath is required".to_string(),
+                None,
+            ));
         }
 
         let metadata = build_frontmatter_metadata(&p);
@@ -513,7 +529,10 @@ impl AppTools {
                     "message": "Frontmatter updated successfully",
                 }))
             }
-            _ => Err(McpError::invalid_params(format!("unknown mode: {mode}. Use 'add' or 'update'."), None)),
+            _ => Err(McpError::invalid_params(
+                format!("unknown mode: {mode}. Use 'add' or 'update'."),
+                None,
+            )),
         }
     }
 
@@ -528,7 +547,10 @@ impl AppTools {
     ) -> Result<CallToolResult, McpError> {
         let p = params.0;
         if p.symbol.is_empty() {
-            return Err(McpError::invalid_params("symbol is required".to_string(), None));
+            return Err(McpError::invalid_params(
+                "symbol is required".to_string(),
+                None,
+            ));
         }
         let direction = p.direction.as_deref().unwrap_or("both");
         let rel_type = p.relation_type.as_deref();
@@ -684,7 +706,10 @@ async fn index_single_file(
     ctx: &McpContext,
 ) -> Result<CallToolResult, McpError> {
     if !path.exists() {
-        return Err(McpError::invalid_params(format!("file not found: {filepath}"), None));
+        return Err(McpError::invalid_params(
+            format!("file not found: {filepath}"),
+            None,
+        ));
     }
 
     if is_markdown(path) {

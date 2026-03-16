@@ -1,4 +1,4 @@
-use crate::indexer::core::{normalize_system_path, Indexer};
+use crate::indexer::core::{Indexer, normalize_system_path};
 use crate::mcp::server::McpContext;
 use notify::{EventKind, RecursiveMode, Watcher};
 use std::path::{Path, PathBuf};

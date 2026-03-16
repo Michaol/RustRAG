@@ -233,8 +233,13 @@ mod tests {
             v[2] = 0.3;
             v
         };
-        db.insert_document("rust.md", Utc::now(), &chunks, std::slice::from_ref(&padded_embedding))
-            .unwrap();
+        db.insert_document(
+            "rust.md",
+            Utc::now(),
+            &chunks,
+            std::slice::from_ref(&padded_embedding),
+        )
+        .unwrap();
 
         let code_chunks = vec![CodeChunk {
             chunk: Chunk {
