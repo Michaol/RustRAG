@@ -10,6 +10,7 @@ use ort::session::Session;
 use ort::session::builder::GraphOptimizationLevel;
 use ort::value::Tensor;
 use ort::execution_providers::{CUDAExecutionProvider, DirectMLExecutionProvider, TensorRTExecutionProvider};
+use ort::ep::ExecutionProvider;
 use tracing::info;
 
 use super::tokenizer::BertTokenizer;
@@ -46,36 +47,39 @@ impl OnnxEmbedder {
 
         // Attach requested hardware execution providers
         let is_auto = device == "auto";
-        let mut providers_attached = false;
+        let mut attached_provider = "CPU";
 
-        if is_auto || device == "cuda" || device == "tensorrt" {
-            // Priority 1: TensorRT
-            if is_auto || device == "tensorrt" {
-                if let Ok(b) = builder.clone().with_execution_providers([TensorRTExecutionProvider::default().build()]) {
+        if is_auto || device == "tensorrt" {
+            let ep = TensorRTExecutionProvider::default();
+            if ep.is_available().unwrap_or(false) {
+                if let Ok(b) = builder.clone().with_execution_providers([ep.build()]) {
                     builder = b;
-                    providers_attached = true;
-                    info!("Registered TensorRT Execution Provider");
-                }
-            }
-            // Priority 2: CUDA
-            if is_auto || device == "cuda" {
-                if let Ok(b) = builder.clone().with_execution_providers([CUDAExecutionProvider::default().build()]) {
-                    builder = b;
-                    providers_attached = true;
-                    info!("Registered CUDA Execution Provider");
+                    attached_provider = "TensorRT";
                 }
             }
         }
         
-        if is_auto || device == "directml" {
-            if let Ok(b) = builder.clone().with_execution_providers([DirectMLExecutionProvider::default().build()]) {
-                builder = b;
-                providers_attached = true;
-                info!("Registered DirectML Execution Provider");
+        if attached_provider == "CPU" && (is_auto || device == "cuda") {
+            let ep = CUDAExecutionProvider::default();
+            if ep.is_available().unwrap_or(false) {
+                if let Ok(b) = builder.clone().with_execution_providers([ep.build()]) {
+                    builder = b;
+                    attached_provider = "CUDA";
+                }
             }
         }
 
-        if !fallback_to_cpu && !providers_attached {
+        if attached_provider == "CPU" && (is_auto || device == "directml") {
+            let ep = DirectMLExecutionProvider::default();
+            if ep.is_available().unwrap_or(false) {
+                if let Ok(b) = builder.clone().with_execution_providers([ep.build()]) {
+                    builder = b;
+                    attached_provider = "DirectML";
+                }
+            }
+        }
+
+        if attached_provider == "CPU" && !fallback_to_cpu {
             return Err(EmbedderError::ModelLoadFailed("No requested execution provider is available and fallback_to_cpu is false".into()));
         }
         let session = builder
@@ -86,6 +90,10 @@ impl OnnxEmbedder {
             .commit_from_file(&model_path)
             .map_err(|e| EmbedderError::ModelLoadFailed(format!("model load error: {e}")))?;
 
+        info!("=======================================================");
+        info!("🚀 ONNX Execution Provider Activated: [{}]", attached_provider);
+        info!("=======================================================");
+        
         info!("ONNX model loaded successfully");
 
         let tokenizer = BertTokenizer::from_model_dir(model_dir)
