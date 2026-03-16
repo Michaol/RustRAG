@@ -8,19 +8,17 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use crate::{config::Config, db::Db, embedder::Embedder};
-use tokio::sync::Mutex as TokioMutex;
-use tokio::sync::OnceCell;
-
+use tokio::sync::{Mutex as TokioMutex, RwLock as TokioRwLock};
 /// Shared application context available to all tool handlers.
 #[derive(Clone)]
 pub struct McpContext {
     pub db: Arc<TokioMutex<Db>>,
-    pub config: Arc<Config>,
-    /// Lazy-initialized embedder (loaded on first search/index call)
-    embedder: Arc<OnceCell<Arc<dyn Embedder>>>,
-    /// Path to ONNX model directory (used by lazy init)
+    pub config: Arc<TokioRwLock<Config>>,
+    /// Lazy-initialized embedder, hot-swappable
+    embedder: Arc<TokioRwLock<Option<Arc<dyn Embedder>>>>,    /// Path to ONNX model directory (used by lazy init)
     model_dir: PathBuf,
     pub chunk_size: usize,
+    pub config_path: String,
 }
 
 impl McpContext {
@@ -29,47 +27,78 @@ impl McpContext {
         config: Arc<Config>,
         model_dir: PathBuf,
         chunk_size: usize,
+        config_path: String,
     ) -> Self {
         Self {
             db,
-            config,
-            embedder: Arc::new(OnceCell::new()),
+            config: Arc::new(TokioRwLock::new((*config).clone())),
+            embedder: Arc::new(TokioRwLock::new(None)),
             model_dir,
             chunk_size,
+            config_path,
         }
     }
 
     /// Get or lazily initialize the embedder.
-    ///
-    /// On first call, loads the ONNX model (1-3s). Subsequent calls return instantly.
-    /// Falls back to MockEmbedder if ONNX loading fails.
+    /// On first call or after hot-swap, loads the ONNX model (1-3s).
     pub async fn get_embedder(&self) -> Arc<dyn Embedder> {
-        self.embedder
-            .get_or_init(|| async {
-                tracing::info!("Lazy-initializing ONNX embedder...");
-                match crate::embedder::onnx::OnnxEmbedder::new(
-                    &self.model_dir,
-                    self.config.model.batch_size,
-                    &self.config.compute.device,
-                    self.config.compute.fallback_to_cpu,
-                ) {
-                    Ok(e) => {
-                        tracing::info!(
-                            "ONNX embedder initialized (dim={})",
-                            self.config.model.dimensions
-                        );
-                        Arc::new(e) as Arc<dyn Embedder>
-                    }
-                    Err(e) => {
-                        tracing::warn!("ONNX embedder unavailable: {e}");
-                        tracing::warn!("Using mock embedder — search results will be meaningless");
-                        Arc::new(crate::embedder::mock::MockEmbedder::default())
-                            as Arc<dyn Embedder>
-                    }
-                }
-            })
-            .await
-            .clone()
+        let read_guard = self.embedder.read().await;
+        if let Some(embedder) = read_guard.clone() {
+            return embedder;
+        }
+        drop(read_guard);
+
+        let mut write_guard = self.embedder.write().await;
+        // Double check after acquiring write lock
+        if let Some(embedder) = write_guard.clone() {
+            return embedder;
+        }
+
+        tracing::info!("Lazy-initializing ONNX embedder...");
+        let config = self.config.read().await.clone();
+        match crate::embedder::onnx::OnnxEmbedder::new(
+            &self.model_dir,
+            config.model.batch_size,
+            &config.compute.device,
+            config.compute.fallback_to_cpu,
+        ) {
+            Ok(e) => {
+                tracing::info!("ONNX embedder initialized (dim={})", config.model.dimensions);
+                let embedder_arc = Arc::new(e) as Arc<dyn Embedder>;
+                *write_guard = Some(embedder_arc.clone());
+                embedder_arc
+            }
+            Err(e) => {
+                tracing::warn!("ONNX embedder unavailable: {e}");
+                tracing::warn!("Using mock embedder — search results will be meaningless");
+                let mock_arc = Arc::new(crate::embedder::mock::MockEmbedder::default()) as Arc<dyn Embedder>;
+                *write_guard = Some(mock_arc.clone());
+                mock_arc
+            }
+        }
+    }
+
+    /// Hot-reloads the configuration from disk and drops the embedder if hardware settings changed.
+    pub async fn reload_config(&self, new_config: Config) {
+        let mut config_guard = self.config.write().await;
+        
+        // Check if embedder needs invalidation
+        let mut should_invalidate_embedder = false;
+        if config_guard.compute.device != new_config.compute.device 
+            || config_guard.compute.fallback_to_cpu != new_config.compute.fallback_to_cpu
+            || config_guard.model.batch_size != new_config.model.batch_size {
+            should_invalidate_embedder = true;
+        }
+
+        tracing::info!("Reloading configuration parameters in-memory...");
+        *config_guard = new_config;
+        drop(config_guard); // Free config lock before acquiring embedder lock
+
+        if should_invalidate_embedder {
+            tracing::warn!("Hardware acceleration settings changed. Invalidating Embedder context for hot-swap!");
+            let mut embedder_guard = self.embedder.write().await;
+            *embedder_guard = None;
+        }
     }
 }
 

@@ -99,7 +99,7 @@ async fn main() -> Result<()> {
     let db = Arc::new(TokioMutex::new(db));
 
     // 7. Create MCP context (embedder is lazy-loaded on first search/index call)
-    let mcp_ctx = McpContext::new(db.clone(), config.clone(), model_dir, chunk_size);
+    let mcp_ctx = McpContext::new(db.clone(), config.clone(), model_dir, chunk_size, cli.config.clone());
 
     // 8. Spawn background sync task (non-blocking, MCP server starts immediately)
     //    The sync task triggers lazy embedder initialization in the background,
@@ -108,7 +108,7 @@ async fn main() -> Result<()> {
         let sync_ctx = mcp_ctx.clone();
 
         tokio::spawn(async move {
-            let base_dirs = sync_ctx.config.get_base_directories();
+            let base_dirs = sync_ctx.config.read().await.get_base_directories();
             tracing::info!(dirs = ?base_dirs, "Background sync started");
 
             // Trigger embedder lazy-init now (in background, not blocking MCP startup)
@@ -129,7 +129,7 @@ async fn main() -> Result<()> {
                         sync_ctx.db.clone(),
                         sync_embedder.as_ref(),
                         sync_ctx.chunk_size,
-                        sync_ctx.config.clone(),
+                        Arc::new(sync_ctx.config.read().await.clone()),
                     );
                     indexer.index_directory(dir, false).await
                 };
@@ -159,7 +159,7 @@ async fn main() -> Result<()> {
     }
 
     // 9. Start background file watcher (hot reload)
-    rustrag::watcher::start_watcher(mcp_ctx.clone());
+    rustrag::watcher::start_watcher(mcp_ctx.clone()).await;
 
     // 10. Start MCP server immediately (does NOT wait for sync or embedder loading)
     let server = McpServer::new(mcp_ctx);

@@ -12,29 +12,36 @@ A high-performance local RAG (Retrieval-Augmented Generation) MCP Server written
 
 ---
 
-## 🚀 Latest Release (v1.3.5)
+## Latest Release (v1.3.6)
 
-RustRAG brings deep user experience and robustness optimizations:
+v1.3.6 introduces a native hot-reloading mechanism for configurations and model instances via `RwLock`:
 
-- 💻 **Zero-Config GPU Acceleration**: Unlock native CUDA/TensorRT/DirectML throughput effortlessly by dropping Official ONNX dynamic libraries into your execution path, featuring intelligent safe-fallback to CPU across all platforms!
-
-- ⚙️ **Enhanced Config & Fault Tolerance**: `config.json` now supports tuning the Embedder's `batch_size` and toggling `compute.fallback_to_cpu` safe-fallback mode. No more OOM panic or accelerator (CUDA/CoreML) loading failures halting the engine.
-- 🔄 **Real-Time Hot-Reloading** (`File Watcher`): Integrated native cross-platform background filesystem events. Say goodbye to manual MCP `index` invokes. Any modifications, creations, or deletions to tracked files trigger an instantaneous background differential sync!
-- 🗄️ **SQLite WAL Mode & Concurrency Protection**: The underlying vector storage now proactively activates Write-Ahead Logging along with optimized busy-timeout intervals. Complete farewell to `database is locked` contention during high-frequency parallel read/writes.
-- 🧯 **Granular MCP Error Dispatching**: Revamped MCP server error topologies to propagate distinct, localized exceptions back to the client natively. 
+- **GPU Inference Engine Hot-Reloading**: The core model execution environment is now decoupled using read-write locks (`RwLock`). Modifying hardware strategies (`device`) or parameters in `config.json` will automatically release the previous ONNX inference graph and reinitialize it with the new settings on the next request, requiring no service restart.
+- **Dynamic Config & Watcher Sync**: The system now monitors `config.json` for changes. Any modification immediately reloads the configuration and adjusts the background file-watching processes in real-time according to updated inclusion/exclusion filtering rules.
 
 ---
 
-## 🚀 History (v1.2.0 & v1.1.0)
+<details>
+<summary><b>Expand to view History (v1.3.5 and prior)</b></summary>
+<br>
 
-RustRAG brings a major evolution to its vector engine & architecture:
+### v1.3.5 Hardware Acceleration Update
 
-- ⚡️ **INT8 Scalar Quantization**: Redesigned DB virtual table from `FLOAT[384]` to `INT8[384]`. Achieved a huge 75% size reduction in vector storage without perceivable recall loss (uses standard cosine similarity mapping to byte representations).
-- 🧠 **ONNX Level 3 Graph Optimization**: Upgraded ONNX inference session builder to fully support Level 3 Graph Optimization, ensuring zero-cost native CPU inference acceleration through deeper graph fusion.
-- ⚙️ **Hot Config Reloading**: Added metadata hash protection logic. Change your `config.json` filters and start indexing — the indexer now automatically detects rule tweaks (`exclude_patterns` & `file_extensions`), cascaded deletes leftover stale entries by prefix, and reinstates clean indices.
-- 🧹 **Cascade Cleanup**: Added self-healing capability against physical "ghost" deleted files via a HashSet directory synchronization phase.
+- **Multi-Platform GPU Acceleration**: Supports native CUDA, TensorRT, DirectML, and CoreML dynamic library loading across platforms, featuring an intelligent fallback to CPU.
+- **Configuration & Fault Tolerance**: `config.json` supports custom Embedder `batch_size` and toggling `compute.fallback_to_cpu` mode to prevent hardware initialization failures from causing panics.
+- **Real-Time File Watching**: Integrated native background filesystem events. Modifications to tracked tracked directories trigger incremental background synchronization.
+- **SQLite WAL Mode**: The SQLite vector storage enables Write-Ahead Logging by default, preventing `database is locked` contention during concurrent operations.
+- **Granular MCP Error Reporting**: Revamped error handling to propagate localized exceptions directly to the client logs.
 
-> ⚠️ **IMPORTANT**: Because `v1.2.0` introduces INT8 optimizations that structurally mutate the underlying virtual table dimensions in `sqlite-vec` — please make sure to **manually delete the existing `vectors.db` file** upon updating! Upon restart, the system will initialize a tiny, much-faster database for your RAG workspace.
+### v1.2.0 & v1.1.0 Performance & Compression Update
+
+- **INT8 Scalar Quantization**: Redesigned the DB virtual table replacing `FLOAT[384]` with `INT8[384]`. This achieved a 75% vector storage size reduction without noticeable recall degradation.
+- **ONNX Level 3 Graph Optimization**: Upgraded the ONNX inference session builder to fully support Level 3 Graph Optimization, improving pure CPU inference performance.
+- **Automated Cascade Cleanup**: Changing filter patterns (`exclude_patterns`) prompts the system to purge stale documents upon the next index update; deleting physical files also automatically cleans up corresponding records in the database.
+
+> ⚠️ **Data Compatibility Note**: If upgrading from v1.1.x, please manually remove the existing `vectors.db` file to initialize the new INT8 schema DB.
+
+</details>
 
 ---
 

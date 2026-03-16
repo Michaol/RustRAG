@@ -205,14 +205,16 @@ impl AppTools {
         drop(db);
 
         // Check for updates (non-blocking, best-effort)
-        let update_info = if self.ctx.config.is_update_check_enabled() {
+        let config_guard = self.ctx.config.read().await;
+        let update_info = if config_guard.is_update_check_enabled() {
             crate::updater::get_update_info(
                 crate::updater::CURRENT_VERSION,
-                &self.ctx.config.db_path,
+                &config_guard.db_path,
             )
         } else {
             None
         };
+        drop(config_guard);
 
         let results_json: Vec<serde_json::Value> = results
             .iter()
@@ -315,9 +317,13 @@ impl AppTools {
 
             // Build overrides from config
             let mut overrides = ignore::overrides::OverrideBuilder::new(dir);
-            for pattern in &self.ctx.config.exclude_patterns {
+            
+            let config_guard = self.ctx.config.read().await;
+            for pattern in &config_guard.exclude_patterns {
                 let _ = overrides.add(&format!("!{}", pattern));
             }
+            let file_extensions = config_guard.file_extensions.clone();
+            drop(config_guard);
             let override_matcher = overrides.build().unwrap_or_else(|_| {
                 ignore::overrides::OverrideBuilder::new(dir)
                     .build()
@@ -349,7 +355,7 @@ impl AppTools {
 
                 let ext = path.extension().and_then(|s| s.to_str()).unwrap_or("");
                 let base_supported = matches!(ext, "md" | "rs" | "go" | "py" | "js" | "ts");
-                let is_supported = match &self.ctx.config.file_extensions {
+                let is_supported = match &file_extensions {
                     Some(exts) => base_supported && exts.iter().any(|e| e == ext),
                     None => base_supported,
                 };
