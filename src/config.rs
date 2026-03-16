@@ -176,12 +176,10 @@ impl Config {
             info!("{path} not found, using defaults");
             let cfg = Self::default();
 
-            // Generate template only for the default path
-            if path == "config.json" {
-                match cfg.save(path) {
-                    Ok(()) => info!("Generated config template: {path}"),
-                    Err(e) => warn!("Failed to generate config template: {e}"),
-                }
+            // Generate template for any path that doesn't exist to ensure a workable state
+            match cfg.save(path) {
+                Ok(()) => info!("Generated config template: {path}"),
+                Err(e) => warn!("Failed to generate config template: {e}"),
             }
 
             return Ok(cfg);
