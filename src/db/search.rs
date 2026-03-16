@@ -233,7 +233,7 @@ mod tests {
             v[2] = 0.3;
             v
         };
-        db.insert_document("rust.md", Utc::now(), &chunks, &[padded_embedding.clone()])
+        db.insert_document("rust.md", Utc::now(), &chunks, std::slice::from_ref(&padded_embedding))
             .unwrap();
 
         let code_chunks = vec![CodeChunk {
@@ -260,7 +260,7 @@ mod tests {
             "src/main.rs",
             Utc::now(),
             &code_chunks,
-            &[code_padded_embedding.clone()],
+            std::slice::from_ref(&code_padded_embedding),
         )
         .unwrap();
 
@@ -295,7 +295,7 @@ mod tests {
             "docs/a.md",
             Utc::now(),
             &chunks,
-            &[padded_embedding.clone()],
+            std::slice::from_ref(&padded_embedding),
         )
         .unwrap();
 
@@ -307,7 +307,7 @@ mod tests {
             "src/b.rs",
             Utc::now(),
             &chunks_b,
-            &[padded_embedding.clone()],
+            std::slice::from_ref(&padded_embedding),
         )
         .unwrap();
 
@@ -319,7 +319,7 @@ mod tests {
             "docs/nested/c.md",
             Utc::now(),
             &chunks_c,
-            &[padded_embedding.clone()],
+            std::slice::from_ref(&padded_embedding),
         )
         .unwrap();
 

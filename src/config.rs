@@ -447,15 +447,19 @@ mod tests {
 
     #[test]
     fn test_validate_bad_chunk_size() {
-        let mut config = Config::default();
-        config.chunk_size = 0;
+        let config = Config {
+            chunk_size: 0,
+            ..Default::default()
+        };
         assert!(config.validate().is_err());
     }
 
     #[test]
     fn test_validate_empty_patterns() {
-        let mut config = Config::default();
-        config.document_patterns = vec![];
+        let config = Config {
+            document_patterns: vec![],
+            ..Default::default()
+        };
         assert!(config.validate().is_err());
     }
 

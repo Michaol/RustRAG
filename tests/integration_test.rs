@@ -166,8 +166,10 @@ fn test_config_defaults_and_validation() {
     assert!(config.validate().is_ok());
 
     // Invalid config
-    let mut bad_config = Config::default();
-    bad_config.chunk_size = 0;
+    let bad_config = Config {
+        chunk_size: 0,
+        ..Default::default()
+    };
     assert!(bad_config.validate().is_err());
 }
 

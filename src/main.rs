@@ -173,7 +173,7 @@ async fn main() -> Result<()> {
         "http" => {
             server.start_http(cli.port).await?;
         }
-        "stdio" | _ => {
+        _ => {
             tracing::info!("Starting MCP server on stdio transport...");
             server.start().await?;
         }

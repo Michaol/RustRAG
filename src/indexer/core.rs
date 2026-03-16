@@ -13,8 +13,8 @@ use tokio::sync::Mutex as TokioMutex;
 pub fn normalize_system_path(path: &Path) -> String {
     let canonical = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
     let s = canonical.to_string_lossy();
-    let s = if s.starts_with(r"\\?\") {
-        &s[4..]
+    let s = if let Some(stripped) = s.strip_prefix(r"\\?\") {
+        stripped
     } else {
         s.as_ref()
     };
