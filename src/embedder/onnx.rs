@@ -6,11 +6,13 @@
 use std::path::Path;
 use std::sync::Mutex;
 
+use ort::ep::ExecutionProvider;
+use ort::execution_providers::{
+    CUDAExecutionProvider, DirectMLExecutionProvider, TensorRTExecutionProvider,
+};
 use ort::session::Session;
 use ort::session::builder::GraphOptimizationLevel;
 use ort::value::Tensor;
-use ort::execution_providers::{CUDAExecutionProvider, DirectMLExecutionProvider, TensorRTExecutionProvider};
-use ort::ep::ExecutionProvider;
 use tracing::info;
 
 use super::tokenizer::BertTokenizer;
@@ -28,7 +30,12 @@ impl OnnxEmbedder {
     /// Create a new `OnnxEmbedder` by loading a model from the given directory.
     ///
     /// Expects `model.onnx` and `tokenizer.json` in `model_dir`.
-    pub fn new(model_dir: &Path, batch_size: usize, device: &str, fallback_to_cpu: bool) -> Result<Self, EmbedderError> {
+    pub fn new(
+        model_dir: &Path,
+        batch_size: usize,
+        device: &str,
+        fallback_to_cpu: bool,
+    ) -> Result<Self, EmbedderError> {
         let model_path = model_dir.join("model.onnx");
 
         if !model_path.exists() {
@@ -58,7 +65,7 @@ impl OnnxEmbedder {
                 }
             }
         }
-        
+
         if attached_provider == "CPU" && (is_auto || device == "cuda") {
             let ep = CUDAExecutionProvider::default();
             if ep.is_available().unwrap_or(false) {
@@ -80,7 +87,9 @@ impl OnnxEmbedder {
         }
 
         if attached_provider == "CPU" && !fallback_to_cpu {
-            return Err(EmbedderError::ModelLoadFailed("No requested execution provider is available and fallback_to_cpu is false".into()));
+            return Err(EmbedderError::ModelLoadFailed(
+                "No requested execution provider is available and fallback_to_cpu is false".into(),
+            ));
         }
         let session = builder
             .with_intra_threads(4)
@@ -91,9 +100,12 @@ impl OnnxEmbedder {
             .map_err(|e| EmbedderError::ModelLoadFailed(format!("model load error: {e}")))?;
 
         info!("=======================================================");
-        info!("🚀 ONNX Execution Provider Activated: [{}]", attached_provider);
+        info!(
+            "🚀 ONNX Execution Provider Activated: [{}]",
+            attached_provider
+        );
         info!("=======================================================");
-        
+
         info!("ONNX model loaded successfully");
 
         let tokenizer = BertTokenizer::from_model_dir(model_dir)

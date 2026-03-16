@@ -8,7 +8,8 @@ async fn main() {
     let model_path = "C:/Users/michaol/AppData/Local/RustRAG/models/multilingual-e5-small";
 
     let db = Db::open(db_path).expect("Failed to open DB");
-    let embedder = OnnxEmbedder::new(Path::new(model_path), 32, "auto", true).expect("Failed to load model");
+    let embedder =
+        OnnxEmbedder::new(Path::new(model_path), 32, "auto", true).expect("Failed to load model");
 
     let queries = vec![
         "Passwall intermittent DNS resolution failures, NFTSET troubleshooting",
