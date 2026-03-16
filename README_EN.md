@@ -180,6 +180,30 @@ MCP clients (like Cursor or Claude Desktop) run the processes silently in the ba
 ```
 This setup grants your local AI assistant instantaneous insight into millions of lines of remote code with absolutely zero CPU or memory footprint on your local machine.
 
+#### 💻 Advanced: Unlock Local GPU Acceleration (CUDA / TensorRT)
+
+To keep the repository footprint minimal and ensure out-of-the-box compatibility for all users on any platform (specifically Apple Silicon Macs or laptops without discrete GPUs), RustRAG defaults to a lightweight **CPU-only Mode** (`fallback_to_cpu: true`). However, if you possess a dedicated NVIDIA GPU (e.g. RTX 30/40 series) and desire microsecond-level vector search throughput, you can effortlessly unlock TensorRT/CUDA acceleration:
+
+1. **Download Official GPU Runtimes**
+   Navigate to the [ONNX Runtime v1.23.2 Release Page](https://github.com/microsoft/onnxruntime/releases/tag/v1.23.2) and download the appropriate OS GPU package (approx 300+MB):
+   - **Windows:** Download `onnxruntime-win-x64-gpu-1.23.2.zip`
+   - **Linux:** Download `onnxruntime-linux-x64-gpu-1.23.2.tgz`
+   - **macOS:** Apple Silicon Macs run natively fast on CPU with CoreML support. Do not download the Nvidia packages.
+
+2. **Setup the Dynamic Libraries**
+   Extract the archive and drop all the `.dll` (for Windows) or `.so` (for Linux) files (e.g., `onnxruntime.dll`, `libonnxruntime_providers_cuda.so`) precisely **into the same directory of your `rustrag` backend executable binary**.
+
+3. **Enable Auto-Detection**
+   Open your project configuration (`config.json`) and ensure:
+   
+   ```json
+   "compute": {
+     "device": "auto",       // <-- Will auto-seek TensorRT, then CUDA, DML/CoreML, etc.
+     "fallback_to_cpu": true // <-- Safety net to quietly fallback to CPU if GPU dlls are missing
+   }
+   ```
+If the requirements are met, upon startup the MCP log will confidently announce `🚀 ONNX Execution Provider Activated: [TensorRT]` or `[CUDA]`. **This configuration is entirely isolated to your execution folder; it will never pollute the core project repository!**
+
 ## CLI Options
 
 | Flag              | Default       | Description                             |
