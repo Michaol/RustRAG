@@ -15,7 +15,8 @@ pub struct McpContext {
     pub db: Arc<TokioMutex<Db>>,
     pub config: Arc<TokioRwLock<Config>>,
     /// Lazy-initialized embedder, hot-swappable
-    embedder: Arc<TokioRwLock<Option<Arc<dyn Embedder>>>>,    /// Path to ONNX model directory (used by lazy init)
+    embedder: Arc<TokioRwLock<Option<Arc<dyn Embedder>>>>,
+    /// Path to ONNX model directory (used by lazy init)
     model_dir: PathBuf,
     pub chunk_size: usize,
     pub config_path: String,
@@ -63,7 +64,10 @@ impl McpContext {
             config.compute.fallback_to_cpu,
         ) {
             Ok(e) => {
-                tracing::info!("ONNX embedder initialized (dim={})", config.model.dimensions);
+                tracing::info!(
+                    "ONNX embedder initialized (dim={})",
+                    config.model.dimensions
+                );
                 let embedder_arc = Arc::new(e) as Arc<dyn Embedder>;
                 *write_guard = Some(embedder_arc.clone());
                 embedder_arc
@@ -71,7 +75,8 @@ impl McpContext {
             Err(e) => {
                 tracing::warn!("ONNX embedder unavailable: {e}");
                 tracing::warn!("Using mock embedder — search results will be meaningless");
-                let mock_arc = Arc::new(crate::embedder::mock::MockEmbedder::default()) as Arc<dyn Embedder>;
+                let mock_arc =
+                    Arc::new(crate::embedder::mock::MockEmbedder::default()) as Arc<dyn Embedder>;
                 *write_guard = Some(mock_arc.clone());
                 mock_arc
             }
@@ -81,12 +86,13 @@ impl McpContext {
     /// Hot-reloads the configuration from disk and drops the embedder if hardware settings changed.
     pub async fn reload_config(&self, new_config: Config) {
         let mut config_guard = self.config.write().await;
-        
+
         // Check if embedder needs invalidation
         let mut should_invalidate_embedder = false;
-        if config_guard.compute.device != new_config.compute.device 
+        if config_guard.compute.device != new_config.compute.device
             || config_guard.compute.fallback_to_cpu != new_config.compute.fallback_to_cpu
-            || config_guard.model.batch_size != new_config.model.batch_size {
+            || config_guard.model.batch_size != new_config.model.batch_size
+        {
             should_invalidate_embedder = true;
         }
 
@@ -95,7 +101,9 @@ impl McpContext {
         drop(config_guard); // Free config lock before acquiring embedder lock
 
         if should_invalidate_embedder {
-            tracing::warn!("Hardware acceleration settings changed. Invalidating Embedder context for hot-swap!");
+            tracing::warn!(
+                "Hardware acceleration settings changed. Invalidating Embedder context for hot-swap!"
+            );
             let mut embedder_guard = self.embedder.write().await;
             *embedder_guard = None;
         }

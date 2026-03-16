@@ -38,9 +38,16 @@ pub async fn start_watcher(ctx: McpContext) {
     // Watch config file itself
     if config_path.exists() {
         if let Err(e) = watcher.watch(&config_path, RecursiveMode::NonRecursive) {
-            warn!("Failed to watch config file {}: {}", config_path.display(), e);
+            warn!(
+                "Failed to watch config file {}: {}",
+                config_path.display(),
+                e
+            );
         } else {
-            info!("Watching config file for hot-reloads: {}", config_path.display());
+            info!(
+                "Watching config file for hot-reloads: {}",
+                config_path.display()
+            );
         }
     }
 
@@ -78,11 +85,13 @@ pub async fn start_watcher(ctx: McpContext) {
                 .await;
 
                 let mut config_reloaded = false;
-                let config_canon = config_path_clone.canonicalize().unwrap_or_else(|_| config_path_clone.clone());
+                let config_canon = config_path_clone
+                    .canonicalize()
+                    .unwrap_or_else(|_| config_path_clone.clone());
 
                 for p in &paths_to_process {
                     let p_canon = p.canonicalize().unwrap_or_else(|_| p.clone());
-                    
+
                     if p_canon == config_canon {
                         info!("Config file modified! Triggering hot reload...");
                         match crate::config::Config::load(&ctx.config_path) {
@@ -100,17 +109,26 @@ pub async fn start_watcher(ctx: McpContext) {
                 // If configuration altered, reset directory physical watchers
                 if config_reloaded {
                     let new_dirs = ctx.config.read().await.get_base_directories();
-                    
+
                     // Unwatch old and watch new
                     for old_dir in &current_watch_dirs {
                         let _ = _keep_watcher_alive.unwatch(old_dir);
                     }
                     for new_dir in &new_dirs {
                         if new_dir.exists() {
-                            if let Err(e) = _keep_watcher_alive.watch(new_dir, RecursiveMode::Recursive) {
-                                warn!("Failed to dynamically watch new directory {}: {}", new_dir.display(), e);
+                            if let Err(e) =
+                                _keep_watcher_alive.watch(new_dir, RecursiveMode::Recursive)
+                            {
+                                warn!(
+                                    "Failed to dynamically watch new directory {}: {}",
+                                    new_dir.display(),
+                                    e
+                                );
                             } else {
-                                info!("Dynamically watching directory for changes: {}", new_dir.display());
+                                info!(
+                                    "Dynamically watching directory for changes: {}",
+                                    new_dir.display()
+                                );
                             }
                         }
                     }

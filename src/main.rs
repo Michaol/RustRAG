@@ -99,7 +99,13 @@ async fn main() -> Result<()> {
     let db = Arc::new(TokioMutex::new(db));
 
     // 7. Create MCP context (embedder is lazy-loaded on first search/index call)
-    let mcp_ctx = McpContext::new(db.clone(), config.clone(), model_dir, chunk_size, cli.config.clone());
+    let mcp_ctx = McpContext::new(
+        db.clone(),
+        config.clone(),
+        model_dir,
+        chunk_size,
+        cli.config.clone(),
+    );
 
     // 8. Spawn background sync task (non-blocking, MCP server starts immediately)
     //    The sync task triggers lazy embedder initialization in the background,

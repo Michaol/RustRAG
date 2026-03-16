@@ -207,10 +207,7 @@ impl AppTools {
         // Check for updates (non-blocking, best-effort)
         let config_guard = self.ctx.config.read().await;
         let update_info = if config_guard.is_update_check_enabled() {
-            crate::updater::get_update_info(
-                crate::updater::CURRENT_VERSION,
-                &config_guard.db_path,
-            )
+            crate::updater::get_update_info(crate::updater::CURRENT_VERSION, &config_guard.db_path)
         } else {
             None
         };
@@ -317,7 +314,7 @@ impl AppTools {
 
             // Build overrides from config
             let mut overrides = ignore::overrides::OverrideBuilder::new(dir);
-            
+
             let config_guard = self.ctx.config.read().await;
             for pattern in &config_guard.exclude_patterns {
                 let _ = overrides.add(&format!("!{}", pattern));
