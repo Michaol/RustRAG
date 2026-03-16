@@ -21,3 +21,4 @@ pub mod frontmatter;
 pub mod indexer;
 pub mod mcp;
 pub mod updater;
+pub mod watcher;

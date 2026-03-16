@@ -1,16 +1,13 @@
 /// MCP Tool handlers for RustRAG.
 ///
-/// Implements 10 tools mirroring Go version's `internal/mcp/tools.go`:
+/// Implements 7 tools (consolidated from original 10):
 /// 1. search           – vector similarity search
-/// 2. index_markdown   – index a single markdown file
+/// 2. index            – index files (markdown or code, auto-detected by extension)
 /// 3. list_documents   – list indexed documents
-/// 4. delete_document  – delete a document
-/// 5. reindex_document – delete + re-index
-/// 6. add_frontmatter  – add YAML frontmatter
-/// 7. update_frontmatter – update YAML frontmatter
-/// 8. index_code       – index source code (file/dir/batch)
-/// 9. search_relations – search code symbol relations
-/// 10. build_dictionary – build multilingual word dictionary
+/// 4. manage_document  – delete or reindex a document
+/// 5. frontmatter      – add or update YAML frontmatter
+/// 6. search_relations – search code symbol relations
+/// 7. build_dictionary – build multilingual word dictionary
 use crate::db::search::SearchFilter;
 use crate::frontmatter;
 use crate::indexer::{
@@ -44,21 +41,31 @@ struct SearchParams {
 }
 
 #[derive(Deserialize, JsonSchema)]
-struct FilepathParam {
-    /// Path to the markdown file
-    filepath: String,
+struct IndexParams {
+    /// Single file to index
+    filepath: Option<String>,
+    /// Directory to index recursively
+    directory: Option<String>,
+    /// Multiple files to index (comma-separated)
+    filepaths: Option<String>,
+    /// Force re-index even if unchanged (default: false)
+    force: Option<bool>,
 }
 
 #[derive(Deserialize, JsonSchema)]
-struct FilenameParam {
+struct ManageDocumentParams {
     /// Filename to operate on
     filename: String,
+    /// Action to perform: "delete" or "reindex" (default: "delete")
+    action: Option<String>,
 }
 
 #[derive(Deserialize, JsonSchema)]
 struct FrontmatterParams {
     /// Path to the markdown file
     filepath: String,
+    /// Mode: "add" or "update" (default: "update")
+    mode: Option<String>,
     /// Domain: frontend | backend | mobile | infrastructure | other
     domain: Option<String>,
     /// Document type: spec | design | api | guide | note | other
@@ -70,18 +77,6 @@ struct FrontmatterParams {
     tags: Option<String>,
     /// Project name (optional)
     project: Option<String>,
-}
-
-#[derive(Deserialize, JsonSchema)]
-struct IndexCodeParams {
-    /// Single file to index
-    filepath: Option<String>,
-    /// Directory to index recursively
-    directory: Option<String>,
-    /// Multiple files to index (comma-separated)
-    filepaths: Option<String>,
-    /// Force re-index even if unchanged (default: false)
-    force: Option<bool>,
 }
 
 #[derive(Deserialize, JsonSchema)]
@@ -173,15 +168,16 @@ impl AppTools {
     #[tool(
         description = "Natural language vector search over indexed documents. Supports directory and filename pattern filters. If the response contains update_available, inform the user about the new version."
     )]
-    async fn search(&self, params: Parameters<SearchParams>) -> Result<CallToolResult, McpError> {
+    async fn search(
+        &self,
+        params: Parameters<SearchParams>,
+    ) -> Result<CallToolResult, McpError> {
         let p = params.0;
         if p.query.is_empty() {
-            return error_result("query is required");
+            return Err(McpError::invalid_params("query is required".to_string(), None));
         }
+        let top_k = p.top_k.unwrap_or(5);
 
-        let top_k = p.top_k.unwrap_or(self.ctx.config.search_top_k);
-
-        // Build filter
         let filter = SearchFilter {
             directory: p.directory.as_deref(),
             file_pattern: p.file_pattern.as_deref(),
@@ -189,11 +185,10 @@ impl AppTools {
         let has_filter = filter.directory.is_some() || filter.file_pattern.is_some();
 
         // Vectorize query
-        let query_vector = self
-            .ctx
-            .embedder
+        let embedder = self.ctx.get_embedder().await;
+        let query_vector = embedder
             .embed(&p.query)
-            .map_err(|e| McpError::internal_error(format!("embedding failed: {e}"), None))?;
+            .map_err(|e| McpError::invalid_request(format!("embedding failed: {e}"), None))?;
 
         // Search DB
         let db = self.ctx.db.lock().await;
@@ -202,78 +197,191 @@ impl AppTools {
             .search_with_filter(&query_vector, top_k, filter_ref)
             .map_err(|e| McpError::internal_error(format!("search failed: {e}"), None))?;
 
+        // Also search by keyword fallback
+        let keywords: Vec<&str> = p.query.split_whitespace().collect();
+        let keyword_results = db
+            .search_symbols_by_keywords(&keywords, top_k)
+            .unwrap_or_default();
+        drop(db);
+
+        // Check for updates (non-blocking, best-effort)
+        let update_info = if self.ctx.config.is_update_check_enabled() {
+            crate::updater::get_update_info(
+                crate::updater::CURRENT_VERSION,
+                &self.ctx.config.db_path,
+            )
+        } else {
+            None
+        };
+
         let results_json: Vec<serde_json::Value> = results
             .iter()
+            .chain(keyword_results.iter())
             .map(|r| {
                 let mut obj = serde_json::json!({
                     "document": r.document_name,
                     "content": r.chunk_content,
-                    "similarity": r.similarity,
+                    "similarity": format!("{:.4}", r.similarity),
                     "position": r.position,
                 });
                 if let Some(meta) = &r.metadata {
                     obj["symbol_name"] = serde_json::json!(meta.symbol_name);
                     obj["symbol_type"] = serde_json::json!(meta.symbol_type);
                     obj["language"] = serde_json::json!(meta.language);
+                    obj["start_line"] = serde_json::json!(meta.start_line);
+                    obj["end_line"] = serde_json::json!(meta.end_line);
+                    obj["parent_symbol"] = serde_json::json!(meta.parent_symbol);
+                    obj["signature"] = serde_json::json!(meta.signature);
                 }
                 obj
             })
             .collect();
 
-        json_result(serde_json::json!({ "results": results_json }))
+        let mut response = serde_json::json!({ "results": results_json });
+        if let Some(info) = update_info {
+            response["update_available"] = serde_json::json!({
+                "current_version": info.current_version,
+                "latest_version": info.latest_version,
+                "url": info.url,
+            });
+        }
+
+        json_result(response)
     }
 
-    // ── Tool 2: index_markdown ──────────────────────────────────────
+    // ── Tool 2: index (merged index_markdown + index_code) ──────────
 
-    #[tool(description = "Index a specified markdown file")]
-    async fn index_markdown(
+    #[tool(
+        description = "Index files (markdown or code). Auto-detects type by file extension. Supports single file, directory, or batch (comma-separated paths). Languages: Go, Python, TypeScript, JavaScript, Rust, Markdown."
+    )]
+    async fn index(
         &self,
-        params: Parameters<FilepathParam>,
+        params: Parameters<IndexParams>,
     ) -> Result<CallToolResult, McpError> {
-        let filepath = &params.0.filepath;
-        if filepath.is_empty() {
-            return error_result("filepath is required");
+        let p = params.0;
+        if p.filepath.is_none() && p.directory.is_none() && p.filepaths.is_none() {
+            return Err(McpError::invalid_params("filepath, directory, or filepaths is required".to_string(), None));
         }
 
-        let path = Path::new(filepath);
-        if !path.exists() {
-            return error_result(&format!("file not found: {filepath}"));
+        // Single file
+        if let Some(fp) = &p.filepath {
+            let path = Path::new(fp);
+            if !path.exists() {
+                return Err(McpError::invalid_params(format!("file not found: {fp}"), None));
+            }
+            return index_single_file(path, fp, &self.ctx).await;
         }
 
-        let chunks = crate::indexer::markdown::parse_markdown(path, self.ctx.chunk_size)
-            .map_err(|e| McpError::internal_error(format!("parse failed: {e}"), None))?;
+        // Batch files
+        if let Some(fps) = &p.filepaths {
+            let files: Vec<&str> = fps
+                .split(',')
+                .map(|s| s.trim())
+                .filter(|s| !s.is_empty())
+                .collect();
+            let mut success_count = 0u32;
+            let mut error_count = 0u32;
+            let mut results = Vec::new();
 
-        if chunks.is_empty() {
+            for f in &files {
+                let path = Path::new(f);
+                match index_single_file(path, f, &self.ctx).await {
+                    Ok(_) => {
+                        success_count += 1;
+                        results.push(serde_json::json!({"file": f, "success": true}));
+                    }
+                    Err(_) => {
+                        error_count += 1;
+                        results.push(serde_json::json!({"file": f, "success": false}));
+                    }
+                }
+            }
+
             return json_result(serde_json::json!({
-                "success": true,
-                "message": "File is empty, nothing to index",
+                "success": error_count == 0,
+                "message": format!("Indexed {success_count} files, {error_count} errors"),
+                "results": results,
+                "success_count": success_count,
+                "error_count": error_count,
             }));
         }
 
-        let text_refs: Vec<&str> = chunks.iter().map(|c| c.content.as_str()).collect();
-        let vectors = self
-            .ctx
-            .embedder
-            .embed_batch(&text_refs)
-            .map_err(|e| McpError::internal_error(format!("embedding failed: {e}"), None))?;
+        // Directory indexing
+        if let Some(dir) = &p.directory {
+            let force = p.force.unwrap_or(false);
 
-        let db_path = filepath.replace('\\', "/");
-        let db_chunks: Vec<crate::db::models::Chunk> = chunks
-            .iter()
-            .map(|c| crate::db::models::Chunk {
-                position: c.position,
-                content: c.content.as_str(),
-            })
-            .collect();
+            // Build overrides from config
+            let mut overrides = ignore::overrides::OverrideBuilder::new(dir);
+            for pattern in &self.ctx.config.exclude_patterns {
+                let _ = overrides.add(&format!("!{}", pattern));
+            }
+            let override_matcher = overrides.build().unwrap_or_else(|_| {
+                ignore::overrides::OverrideBuilder::new(dir)
+                    .build()
+                    .unwrap()
+            });
 
-        let mut db = self.ctx.db.lock().await;
-        db.insert_document(&db_path, chrono::Utc::now(), &db_chunks, &vectors)
-            .map_err(|e| McpError::internal_error(format!("DB insert failed: {e}"), None))?;
+            let walker = ignore::WalkBuilder::new(dir)
+                .hidden(false)
+                .overrides(override_matcher)
+                .build();
 
-        json_result(serde_json::json!({
-            "success": true,
-            "message": "File indexed successfully",
-        }))
+            let mut success_count = 0u32;
+            let mut skip_count = 0u32;
+            let mut fail_count = 0u32;
+
+            // Pre-load existing documents once (avoids O(N²) per-file DB query)
+            let existing_docs = if !force {
+                let db = self.ctx.db.lock().await;
+                db.list_documents().unwrap_or_default()
+            } else {
+                std::collections::HashMap::new()
+            };
+
+            for entry in walker.into_iter().filter_map(|e| e.ok()) {
+                let path = entry.path();
+                if path.is_dir() {
+                    continue;
+                }
+
+                let ext = path.extension().and_then(|s| s.to_str()).unwrap_or("");
+                let base_supported = matches!(ext, "md" | "rs" | "go" | "py" | "js" | "ts");
+                let is_supported = match &self.ctx.config.file_extensions {
+                    Some(exts) => base_supported && exts.iter().any(|e| e == ext),
+                    None => base_supported,
+                };
+
+                if !is_supported {
+                    continue;
+                }
+
+                // Check if already indexed (unless force)
+                if !force {
+                    let db_path = path.to_string_lossy().replace('\\', "/");
+                    if existing_docs.contains_key(&db_path) {
+                        skip_count += 1;
+                        continue;
+                    }
+                }
+
+                let fp_str = path.to_string_lossy().to_string();
+                match index_single_file(path, &fp_str, &self.ctx).await {
+                    Ok(_) => success_count += 1,
+                    Err(_) => fail_count += 1,
+                }
+            }
+
+            return json_result(serde_json::json!({
+                "success": true,
+                "message": "Directory indexing completed",
+                "directory": dir,
+                "files_indexed": success_count,
+                "files_skipped": skip_count,
+                "files_failed": fail_count,
+            }));
+        }
+
+        error_result("unexpected state")
     }
 
     // ── Tool 3: list_documents ──────────────────────────────────────
@@ -310,271 +418,106 @@ impl AppTools {
         }))
     }
 
-    // ── Tool 4: delete_document ─────────────────────────────────────
-
-    #[tool(description = "Delete a document from the DB and optionally from the file system")]
-    async fn delete_document(
-        &self,
-        params: Parameters<FilenameParam>,
-    ) -> Result<CallToolResult, McpError> {
-        let filename = &params.0.filename;
-        if filename.is_empty() {
-            return error_result("filename is required");
-        }
-
-        let db = self.ctx.db.lock().await;
-        db.delete_document(filename)
-            .map_err(|e| McpError::internal_error(format!("delete failed: {e}"), None))?;
-
-        // Also try to remove from filesystem (warn on failure)
-        if let Err(e) = std::fs::remove_file(filename) {
-            log::warn!("Failed to delete file {filename}: {e}");
-        }
-
-        json_result(serde_json::json!({
-            "success": true,
-            "message": "Document deleted successfully",
-        }))
-    }
-
-    // ── Tool 5: reindex_document ────────────────────────────────────
-
-    #[tool(description = "Delete and re-index a document")]
-    async fn reindex_document(
-        &self,
-        params: Parameters<FilenameParam>,
-    ) -> Result<CallToolResult, McpError> {
-        let filename = &params.0.filename;
-        if filename.is_empty() {
-            return error_result("filename is required");
-        }
-
-        // Delete from DB
-        {
-            let db = self.ctx.db.lock().await;
-            db.delete_document(filename)
-                .map_err(|e| McpError::internal_error(format!("delete failed: {e}"), None))?;
-        }
-
-        // Re-index
-        let path = Path::new(filename);
-        if !path.exists() {
-            return error_result(&format!("file not found: {filename}"));
-        }
-
-        let chunks = crate::indexer::markdown::parse_markdown(path, self.ctx.chunk_size)
-            .map_err(|e| McpError::internal_error(format!("parse failed: {e}"), None))?;
-
-        if !chunks.is_empty() {
-            let text_refs: Vec<&str> = chunks.iter().map(|c| c.content.as_str()).collect();
-            let vectors =
-                self.ctx.embedder.embed_batch(&text_refs).map_err(|e| {
-                    McpError::internal_error(format!("embedding failed: {e}"), None)
-                })?;
-
-            let db_path = filename.replace('\\', "/");
-            let db_chunks: Vec<crate::db::models::Chunk> = chunks
-                .iter()
-                .map(|c| crate::db::models::Chunk {
-                    position: c.position,
-                    content: c.content.as_str(),
-                })
-                .collect();
-
-            let mut db = self.ctx.db.lock().await;
-            db.insert_document(&db_path, chrono::Utc::now(), &db_chunks, &vectors)
-                .map_err(|e| McpError::internal_error(format!("reindex failed: {e}"), None))?;
-        }
-
-        json_result(serde_json::json!({
-            "success": true,
-            "message": "Document reindexed successfully",
-        }))
-    }
-
-    // ── Tool 6: add_frontmatter ─────────────────────────────────────
-
-    #[tool(description = "Add metadata (frontmatter) to a markdown file")]
-    async fn add_frontmatter(
-        &self,
-        params: Parameters<FrontmatterParams>,
-    ) -> Result<CallToolResult, McpError> {
-        let p = params.0;
-        if p.filepath.is_empty() {
-            return error_result("filepath is required");
-        }
-
-        let metadata = build_frontmatter_metadata(&p);
-
-        frontmatter::add_frontmatter(Path::new(&p.filepath), &metadata)
-            .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
-
-        json_result(serde_json::json!({
-            "success": true,
-            "message": "Frontmatter added successfully",
-        }))
-    }
-
-    // ── Tool 7: update_frontmatter ──────────────────────────────────
-
-    #[tool(description = "Update metadata (frontmatter) of a markdown file")]
-    async fn update_frontmatter(
-        &self,
-        params: Parameters<FrontmatterParams>,
-    ) -> Result<CallToolResult, McpError> {
-        let p = params.0;
-        if p.filepath.is_empty() {
-            return error_result("filepath is required");
-        }
-
-        let metadata = build_frontmatter_metadata(&p);
-
-        frontmatter::update_frontmatter(Path::new(&p.filepath), &metadata)
-            .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
-
-        json_result(serde_json::json!({
-            "success": true,
-            "message": "Frontmatter updated successfully",
-        }))
-    }
-
-    // ── Tool 8: index_code ──────────────────────────────────────────
+    // ── Tool 4: manage_document (merged delete + reindex) ───────────
 
     #[tool(
-        description = "Index source code files with AST parsing (Tree-sitter). Supports single file, directory, or batch. Languages: Go, Python, TypeScript, JavaScript, Rust"
+        description = "Manage an indexed document. Actions: 'delete' removes it from the DB, 'reindex' deletes and re-indexes it."
     )]
-    async fn index_code(
+    async fn manage_document(
         &self,
-        params: Parameters<IndexCodeParams>,
+        params: Parameters<ManageDocumentParams>,
     ) -> Result<CallToolResult, McpError> {
         let p = params.0;
-        if p.filepath.is_none() && p.directory.is_none() && p.filepaths.is_none() {
-            return error_result("filepath, directory, or filepaths is required");
+        if p.filename.is_empty() {
+            return Err(McpError::invalid_params("filename is required".to_string(), None));
         }
 
-        // Single file
-        if let Some(fp) = &p.filepath {
-            let path = Path::new(fp);
-            if !path.exists() {
-                return error_result(&format!("file not found: {fp}"));
-            }
+        let action = p.action.as_deref().unwrap_or("delete");
 
-            index_single_code_file(path, fp, &self.ctx).await?;
+        match action {
+            "delete" => {
+                let db = self.ctx.db.lock().await;
+                db.delete_document(&p.filename)
+                    .map_err(|e| McpError::internal_error(format!("delete failed: {e}"), None))?;
 
-            return json_result(serde_json::json!({
-                "success": true,
-                "message": "Code file indexed successfully",
-                "file": fp,
-            }));
-        }
-
-        // Batch files
-        if let Some(fps) = &p.filepaths {
-            let files: Vec<&str> = fps
-                .split(',')
-                .map(|s| s.trim())
-                .filter(|s| !s.is_empty())
-                .collect();
-            let mut success_count = 0u32;
-            let mut error_count = 0u32;
-            let mut results = Vec::new();
-
-            for f in &files {
-                let path = Path::new(f);
-                match index_single_code_file(path, f, &self.ctx).await {
-                    Ok(()) => {
-                        success_count += 1;
-                        results.push(serde_json::json!({"file": f, "success": true}));
-                    }
-                    Err(_) => {
-                        error_count += 1;
-                        results.push(serde_json::json!({"file": f, "success": false}));
-                    }
-                }
-            }
-
-            return json_result(serde_json::json!({
-                "success": error_count == 0,
-                "message": format!("Indexed {success_count} files, {error_count} errors"),
-                "results": results,
-                "success_count": success_count,
-                "error_count": error_count,
-            }));
-        }
-
-        // Directory indexing — for code, we reuse the single-file approach on each file
-        if let Some(dir) = &p.directory {
-            let force = p.force.unwrap_or(false);
-
-            // Build overrides from config
-            let mut overrides = ignore::overrides::OverrideBuilder::new(dir);
-            for pattern in &self.ctx.config.exclude_patterns {
-                let _ = overrides.add(&format!("!{}", pattern));
-            }
-            let override_matcher = overrides.build().unwrap_or_else(|_| {
-                ignore::overrides::OverrideBuilder::new(dir)
-                    .build()
-                    .unwrap()
-            });
-
-            let walker = ignore::WalkBuilder::new(dir)
-                .hidden(false)
-                .overrides(override_matcher)
-                .build();
-
-            let mut success_count = 0u32;
-            let mut skip_count = 0u32;
-            let mut fail_count = 0u32;
-
-            for entry in walker.into_iter().filter_map(|e| e.ok()) {
-                let path = entry.path();
-                if path.is_dir() {
-                    continue;
+                // Also try to remove from filesystem (warn on failure)
+                if let Err(e) = std::fs::remove_file(&p.filename) {
+                    log::warn!("Failed to delete file {}: {e}", p.filename);
                 }
 
-                let ext = path.extension().and_then(|s| s.to_str()).unwrap_or("");
-                let base_supported = matches!(ext, "md" | "rs" | "go" | "py" | "js" | "ts");
-                let is_supported = match &self.ctx.config.file_extensions {
-                    Some(exts) => base_supported && exts.iter().any(|e| e == ext),
-                    None => base_supported,
-                };
-
-                if !is_supported {
-                    continue;
-                }
-
-                // Check if already indexed (unless force)
-                if !force {
-                    let db_path = path.to_string_lossy().replace('\\', "/");
+                json_result(serde_json::json!({
+                    "success": true,
+                    "action": "delete",
+                    "message": "Document deleted successfully",
+                }))
+            }
+            "reindex" => {
+                // Delete from DB
+                {
                     let db = self.ctx.db.lock().await;
-                    let docs = db.list_documents().unwrap_or_default();
-                    if docs.contains_key(&db_path) {
-                        skip_count += 1;
-                        continue;
-                    }
+                    db.delete_document(&p.filename)
+                        .map_err(|e| McpError::internal_error(format!("delete failed: {e}"), None))?;
                 }
 
-                let fp_str = path.to_string_lossy().to_string();
-                match index_single_code_file(path, &fp_str, &self.ctx).await {
-                    Ok(()) => success_count += 1,
-                    Err(_) => fail_count += 1,
+                // Re-index
+                let path = Path::new(&p.filename);
+                if !path.exists() {
+                    return Err(McpError::invalid_params(format!("file not found: {}", p.filename), None));
                 }
+
+                index_single_file(path, &p.filename, &self.ctx).await?;
+
+                json_result(serde_json::json!({
+                    "success": true,
+                    "action": "reindex",
+                    "message": "Document reindexed successfully",
+                }))
             }
-
-            return json_result(serde_json::json!({
-                "success": true,
-                "message": "Directory indexing completed",
-                "directory": dir,
-                "files_indexed": success_count,
-                "files_skipped": skip_count,
-                "files_failed": fail_count,
-            }));
+            _ => Err(McpError::invalid_params(format!("unknown action: {action}. Use 'delete' or 'reindex'."), None)),
         }
-
-        error_result("unexpected state")
     }
 
-    // ── Tool 9: search_relations ────────────────────────────────────
+    // ── Tool 5: frontmatter (merged add + update) ───────────────────
+
+    #[tool(
+        description = "Add or update metadata (frontmatter) of a markdown file. Mode: 'add' creates new frontmatter, 'update' modifies existing (default: 'update')."
+    )]
+    async fn frontmatter(
+        &self,
+        params: Parameters<FrontmatterParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let p = params.0;
+        if p.filepath.is_empty() {
+            return Err(McpError::invalid_params("filepath is required".to_string(), None));
+        }
+
+        let metadata = build_frontmatter_metadata(&p);
+        let mode = p.mode.as_deref().unwrap_or("update");
+
+        match mode {
+            "add" => {
+                frontmatter::add_frontmatter(Path::new(&p.filepath), &metadata)
+                    .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
+                json_result(serde_json::json!({
+                    "success": true,
+                    "mode": "add",
+                    "message": "Frontmatter added successfully",
+                }))
+            }
+            "update" => {
+                frontmatter::update_frontmatter(Path::new(&p.filepath), &metadata)
+                    .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
+                json_result(serde_json::json!({
+                    "success": true,
+                    "mode": "update",
+                    "message": "Frontmatter updated successfully",
+                }))
+            }
+            _ => Err(McpError::invalid_params(format!("unknown mode: {mode}. Use 'add' or 'update'."), None)),
+        }
+    }
+
+    // ── Tool 6: search_relations ────────────────────────────────────
 
     #[tool(
         description = "Search code symbol relations (calls, imports, inherits). Explore callers/callees, imports, and inheritance."
@@ -585,7 +528,7 @@ impl AppTools {
     ) -> Result<CallToolResult, McpError> {
         let p = params.0;
         if p.symbol.is_empty() {
-            return error_result("symbol is required");
+            return Err(McpError::invalid_params("symbol is required".to_string(), None));
         }
         let direction = p.direction.as_deref().unwrap_or("both");
         let rel_type = p.relation_type.as_deref();
@@ -617,7 +560,7 @@ impl AppTools {
         }))
     }
 
-    // ── Tool 10: build_dictionary ───────────────────────────────────
+    // ── Tool 7: build_dictionary ───────────────────────────────────
 
     #[tool(
         description = "Build a multilingual word dictionary by extracting word mappings from indexed documents. Auto-learns source-language -> English correspondences."
@@ -635,7 +578,7 @@ impl AppTools {
         if let Some(doc_path) = &p.document {
             // Extract from a specific document
             let content = std::fs::read_to_string(doc_path).map_err(|e| {
-                McpError::internal_error(format!("failed to read {doc_path}: {e}"), None)
+                McpError::invalid_params(format!("failed to read {doc_path}: {e}"), None)
             })?;
             let mappings = extractor.extract_from_content(&content, doc_path, source_lang);
             for m in mappings {
@@ -726,6 +669,78 @@ fn build_frontmatter_metadata(p: &FrontmatterParams) -> frontmatter::Metadata {
     }
 }
 
+/// Returns true if the file extension indicates a markdown file.
+fn is_markdown(path: &Path) -> bool {
+    path.extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e == "md")
+        .unwrap_or(false)
+}
+
+/// Index a single file — auto-detects markdown vs code by extension.
+async fn index_single_file(
+    path: &Path,
+    filepath: &str,
+    ctx: &McpContext,
+) -> Result<CallToolResult, McpError> {
+    if !path.exists() {
+        return Err(McpError::invalid_params(format!("file not found: {filepath}"), None));
+    }
+
+    if is_markdown(path) {
+        index_single_markdown_file(path, filepath, ctx).await
+    } else {
+        index_single_code_file(path, filepath, ctx).await?;
+        json_result(serde_json::json!({
+            "success": true,
+            "message": "Code file indexed successfully",
+            "file": filepath,
+        }))
+    }
+}
+
+/// Index a single markdown file.
+async fn index_single_markdown_file(
+    path: &Path,
+    filepath: &str,
+    ctx: &McpContext,
+) -> Result<CallToolResult, McpError> {
+    let chunks = crate::indexer::markdown::parse_markdown(path, ctx.chunk_size)
+        .map_err(|e| McpError::invalid_params(format!("parse failed: {e}"), None))?;
+
+    if chunks.is_empty() {
+        return json_result(serde_json::json!({
+            "success": true,
+            "message": "File is empty, nothing to index",
+        }));
+    }
+
+    let text_refs: Vec<&str> = chunks.iter().map(|c| c.content.as_str()).collect();
+    let embedder = ctx.get_embedder().await;
+    let vectors = embedder
+        .embed_batch(&text_refs)
+        .map_err(|e| McpError::invalid_request(format!("embedding failed: {e}"), None))?;
+
+    let db_path = filepath.replace('\\', "/");
+    let db_chunks: Vec<crate::db::models::Chunk> = chunks
+        .iter()
+        .map(|c| crate::db::models::Chunk {
+            position: c.position,
+            content: c.content.as_str(),
+        })
+        .collect();
+
+    let mut db = ctx.db.lock().await;
+    db.insert_document(&db_path, chrono::Utc::now(), &db_chunks, &vectors)
+        .map_err(|e| McpError::internal_error(format!("DB insert failed: {e}"), None))?;
+
+    json_result(serde_json::json!({
+        "success": true,
+        "message": "Markdown file indexed successfully",
+        "file": filepath,
+    }))
+}
+
 /// Index a single code file (parse AST + embed + insert).
 async fn index_single_code_file(
     path: &Path,
@@ -737,7 +752,7 @@ async fn index_single_code_file(
 
     let code_chunks = parser
         .parse_file(path)
-        .map_err(|e| McpError::internal_error(format!("parse failed: {e}"), None))?;
+        .map_err(|e| McpError::invalid_params(format!("parse failed: {e}"), None))?;
 
     if code_chunks.is_empty() {
         return Ok(());
@@ -746,10 +761,10 @@ async fn index_single_code_file(
     let text_refs: Vec<String> = code_chunks.iter().map(|c| c.get_embedding_text()).collect();
     let text_str_refs: Vec<&str> = text_refs.iter().map(|s| s.as_str()).collect();
 
-    let vectors = ctx
-        .embedder
+    let embedder = ctx.get_embedder().await;
+    let vectors = embedder
         .embed_batch(&text_str_refs)
-        .map_err(|e| McpError::internal_error(format!("embedding failed: {e}"), None))?;
+        .map_err(|e| McpError::invalid_request(format!("embedding failed: {e}"), None))?;
 
     // Convert to db models
     let db_chunks: Vec<crate::db::models::CodeChunk> = code_chunks

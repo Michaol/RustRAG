@@ -19,13 +19,14 @@ pub struct OnnxEmbedder {
     session: Mutex<Session>,
     tokenizer: BertTokenizer,
     dimensions: usize,
+    batch_size: usize,
 }
 
 impl OnnxEmbedder {
     /// Create a new `OnnxEmbedder` by loading a model from the given directory.
     ///
     /// Expects `model.onnx` and `tokenizer.json` in `model_dir`.
-    pub fn new(model_dir: &Path) -> Result<Self, EmbedderError> {
+    pub fn new(model_dir: &Path, batch_size: usize) -> Result<Self, EmbedderError> {
         let model_path = model_dir.join("model.onnx");
 
         if !model_path.exists() {
@@ -58,7 +59,8 @@ impl OnnxEmbedder {
         Ok(Self {
             session: Mutex::new(session),
             tokenizer,
-            dimensions: 384, // multilingual-e5-small output dimension
+            dimensions: 384,
+            batch_size,
         })
     }
 }
@@ -116,8 +118,99 @@ impl Embedder for OnnxEmbedder {
     }
 
     fn embed_batch(&self, texts: &[&str]) -> Result<Vec<Vec<f32>>, EmbedderError> {
-        // Process one by one (same as Go version)
-        texts.iter().map(|t| self.embed(t)).collect()
+        if texts.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        // Fast path: single text falls back to embed()
+        if texts.len() == 1 {
+            return Ok(vec![self.embed(texts[0])?]);
+        }
+
+        let mut all_results = Vec::with_capacity(texts.len());
+
+        for chunk_texts in texts.chunks(self.batch_size) {
+            let batch_size = chunk_texts.len();
+
+            // 1. Tokenize chunk texts
+            let all_tokens: Vec<_> = chunk_texts
+                .iter()
+                .map(|t| {
+                    self.tokenizer
+                        .tokenize(t)
+                        .map_err(|e| EmbedderError::InferenceFailed(format!("tokenization failed: {e}")))
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+
+            // 2. Find max sequence length for padding
+            let max_seq_len = all_tokens.iter().map(|t| t.input_ids.len()).max().unwrap();
+
+            // 3. Build padded flat arrays [batch_size * max_seq_len]
+            let mut input_ids_flat = vec![0i64; batch_size * max_seq_len];
+            let mut attention_mask_flat = vec![0i64; batch_size * max_seq_len];
+            let token_type_ids_flat = vec![0i64; batch_size * max_seq_len];
+
+            for (i, tokens) in all_tokens.iter().enumerate() {
+                let offset = i * max_seq_len;
+                for (j, &id) in tokens.input_ids.iter().enumerate() {
+                    input_ids_flat[offset + j] = id;
+                }
+                for (j, &mask) in tokens.attention_mask.iter().enumerate() {
+                    attention_mask_flat[offset + j] = mask;
+                }
+            }
+
+            // 4. Create batch tensors: shape [batch_size, max_seq_len]
+            let input_ids_val =
+                Tensor::from_array(([batch_size, max_seq_len], input_ids_flat)).map_err(|e| {
+                    EmbedderError::InferenceFailed(format!("batch input_ids error: {e}"))
+                })?;
+            let attention_mask_val =
+                Tensor::from_array(([batch_size, max_seq_len], attention_mask_flat.clone()))
+                    .map_err(|e| {
+                        EmbedderError::InferenceFailed(format!("batch attention_mask error: {e}"))
+                    })?;
+            let token_type_ids_val =
+                Tensor::from_array(([batch_size, max_seq_len], token_type_ids_flat)).map_err(|e| {
+                    EmbedderError::InferenceFailed(format!("batch token_type_ids error: {e}"))
+                })?;
+
+            // 5. Single inference call for the chunk
+            let mut session = self
+                .session
+                .lock()
+                .map_err(|e| EmbedderError::InferenceFailed(format!("lock poisoned: {e}")))?;
+            let outputs = session
+                .run(ort::inputs![
+                    "input_ids" => input_ids_val,
+                    "attention_mask" => attention_mask_val,
+                    "token_type_ids" => token_type_ids_val,
+                ])
+                .map_err(|e| EmbedderError::InferenceFailed(format!("batch inference failed: {e}")))?;
+
+            // 6. Extract output: shape [batch_size, max_seq_len, hidden_size]
+            let (_shape, hidden_data) = outputs[0]
+                .try_extract_tensor::<f32>()
+                .map_err(|e| EmbedderError::InferenceFailed(format!("output extraction: {e}")))?;
+
+            // 7. Per-sample mean pooling + L2 normalize
+            let stride = max_seq_len * self.dimensions; // elements per sample
+
+            for i in 0..batch_size {
+                let sample_offset = i * stride;
+                let sample_hidden = &hidden_data[sample_offset..sample_offset + stride];
+
+                // Reconstruct per-sample attention mask
+                let mask_offset = i * max_seq_len;
+                let sample_mask = &attention_mask_flat[mask_offset..mask_offset + max_seq_len];
+
+                let embedding =
+                    mean_pooling(sample_hidden, sample_mask, max_seq_len, self.dimensions);
+                all_results.push(l2_normalize(&embedding));
+            }
+        }
+
+        Ok(all_results)
     }
 
     fn dimensions(&self) -> usize {
@@ -218,7 +311,7 @@ mod tests {
             return;
         }
 
-        let embedder = OnnxEmbedder::new(model_dir).unwrap();
+        let embedder = OnnxEmbedder::new(model_dir, 32).unwrap();
         let vec = embedder.embed("Hello, world!").unwrap();
 
         assert_eq!(vec.len(), 384);
@@ -237,7 +330,7 @@ mod tests {
             return;
         }
 
-        let embedder = OnnxEmbedder::new(model_dir).unwrap();
+        let embedder = OnnxEmbedder::new(model_dir, 32).unwrap();
         let results = embedder.embed_batch(&["hello", "world"]).unwrap();
         assert_eq!(results.len(), 2);
         assert_eq!(results[0].len(), 384);

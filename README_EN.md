@@ -12,7 +12,18 @@ A high-performance local RAG (Retrieval-Augmented Generation) MCP Server written
 
 ---
 
-## 🚀 Latest Release (v1.2.0 & v1.1.0)
+## 🚀 Latest Release (v1.3.0)
+
+RustRAG brings deep user experience and robustness optimizations:
+
+- ⚙️ **Enhanced Config & Fault Tolerance**: `config.json` now supports tuning the Embedder's `batch_size` and toggling `compute.fallback_to_cpu` safe-fallback mode. No more OOM panic or accelerator (CUDA/CoreML) loading failures halting the engine.
+- 🔄 **Real-Time Hot-Reloading** (`File Watcher`): Integrated native cross-platform background filesystem events. Say goodbye to manual MCP `index` invokes. Any modifications, creations, or deletions to tracked files trigger an instantaneous background differential sync!
+- 🗄️ **SQLite WAL Mode & Concurrency Protection**: The underlying vector storage now proactively activates Write-Ahead Logging along with optimized busy-timeout intervals. Complete farewell to `database is locked` contention during high-frequency parallel read/writes.
+- 🧯 **Granular MCP Error Dispatching**: Revamped MCP server error topologies to propagate distinct, localized exceptions back to the client natively. 
+
+---
+
+## 🚀 History (v1.2.0 & v1.1.0)
 
 RustRAG brings a major evolution to its vector engine & architecture:
 
@@ -27,7 +38,7 @@ RustRAG brings a major evolution to its vector engine & architecture:
 
 ## Features
 
-- **10 MCP Tools** — search, index_markdown, index_code, list_documents, delete_document, reindex_document, add_frontmatter, update_frontmatter, search_relations, build_dictionary
+- **7 MCP Tools** — search, index, list_documents, manage_document, frontmatter, search_relations, build_dictionary
 - **Vector Search** — SQLite + sqlite-vec for fast local vector similarity search
 - **Code Intelligence** — Tree-sitter AST parsing for Rust, Go, Python, TypeScript, JavaScript
 - **Multilingual Dictionary** — CJK↔English symbol mapping extraction
@@ -94,9 +105,14 @@ Create a `config.json` in your project root (auto-generated with defaults on fir
   "db_path": "./vectors.db",
   "chunk_size": 500,
   "search_top_k": 5,
+  "compute": {
+    "device": "auto",
+    "fallback_to_cpu": true
+  },
   "model": {
     "name": "multilingual-e5-small",
-    "dimensions": 384
+    "dimensions": 384,
+    "batch_size": 32
   }
 }
 ```
@@ -133,6 +149,37 @@ Add to the MCP client configuration file:
 }
 ```
 
+#### 🌩️ Advanced: Remote Installation, Local Invocation (SSH Mode)
+
+If your massive codebases, dev environments, and model weights reside on a remote high-performance server (or local NAS) while you code on a lightweight laptop, you can install RustRAG remotely and **mount it seamlessly over SSH**. Since MCP uses standard streams (stdio), SSH easily pipes it to your local IDE!
+
+**Authentication Requirements (Important):**
+MCP clients (like Cursor or Claude Desktop) run the processes silently in the background and **cannot prompt you for a password**. Therefore, non-interactive login must be configured:
+
+- 🔑 **Option 1: SSH Keys (Highly Recommended, Native Cross-Platform)**
+  Generate a key pair on your local machine (`ssh-keygen -t ed25519`) and push it to the remote (`ssh-copy-id user@ip`) for secure, passwordless mounting. Works natively on Windows, macOS, and Linux.
+- 🔓 **Option 2: `sshpass` (Password-based, Linux/macOS Only)**
+  If you must use a password, replace the `command` with `sshpass` (e.g., `args: ["-p", "YOUR_PASSWORD", "ssh", "user@ip", ...]`). **Note**: `sshpass` is easily available on Linux and macOS (via `brew install sshpass`), but extremely difficult to install natively on Windows. Windows users should strictly stick to Option 1.
+
+**Configuration Example (Native SSH setup):**
+
+```json
+{
+  "mcpServers": {
+    "rustrag-remote": {
+      "command": "ssh",
+      "args": [
+        "user@remote.server.ip",    // Replace with your remote host
+        "/absolute/path/to/rustrag",  // Remote path to rustrag binary
+        "--config",
+        "/remote/project/config.json" // Remote path to config
+      ]
+    }
+  }
+}
+```
+This setup grants your local AI assistant instantaneous insight into millions of lines of remote code with absolutely zero CPU or memory footprint on your local machine.
+
 ## CLI Options
 
 | Flag              | Default       | Description                             |
@@ -148,13 +195,10 @@ Add to the MCP client configuration file:
 | Tool                 | Description                                                             |
 | -------------------- | ----------------------------------------------------------------------- |
 | `search`             | Natural language vector search with optional directory/filename filters |
-| `index_markdown`     | Index a single markdown file                                            |
-| `index_code`         | Index code files using Tree-sitter AST parsing                          |
+| `index`              | Index markdown or code files using logical AST chunking & abstraction   |
+| `manage_document`    | Remove a document from the index or force re-index an existing one      |
 | `list_documents`     | List all indexed documents                                              |
-| `delete_document`    | Remove a document from the index                                        |
-| `reindex_document`   | Force re-index a document                                               |
-| `add_frontmatter`    | Add YAML frontmatter metadata to a markdown file                        |
-| `update_frontmatter` | Update existing frontmatter metadata                                    |
+| `frontmatter`        | Add or update YAML frontmatter metadata to a markdown file              |
 | `search_relations`   | Search code relationships (calls, imports, inherits)                    |
 | `build_dictionary`   | Extract CJK↔English term mappings from code                             |
 
@@ -188,7 +232,7 @@ src/
 │   └── languages.rs  # Language-specific TS queries
 └── mcp/              # MCP protocol layer
     ├── server.rs     # Server setup (stdio transport)
-    └── tools.rs      # 10 tool handler implementations
+    └── tools.rs      # 7 tool handler implementations
 ```
 
 ## Supported Languages

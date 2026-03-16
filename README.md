@@ -12,7 +12,18 @@ RustRAG 是一个使用 Rust 编写的高性能、纯本地的检索增强生成
 
 ---
 
-## 🚀 最新版本发布 (v1.2.0 & v1.1.0)
+## 🚀 最新版本发布 (v1.3.0)
+
+RustRAG 迎来了深度体验与健壮性优化版本：
+
+- ⚙️ **配置灵活性与容错提升**：配置文件现在支持 `batch_size` 容量调优与 `compute.fallback_to_cpu` 设备自降级保护。不再畏惧显存耗尽或加速器 (CUDA/CoreML) 加载故障。
+- 🔄 **文件系统实时热重载 (File Watching)**：引入跨平台原生的后台文件系统监听。无需频繁调用 `index` 工具，任何对受控文档的增、删、改都会立刻触发自动的差量同步，真正的 RAG 「热」重载体验降临！
+- 🗄️ **SQLite WAL 高并发守护**：底层默认激活了 Write-Ahead Logging 模式与更合理的超时保护。告别因高频查询与并发写入造成的 `database is locked` 错误，读写性能大幅双升。
+- 🧯 **精细化 MCP 异常反馈**：优化 MCP 接口报错路由与粒度，将 `Embedder` 计算瓶颈、文件解析错误与 `SQLite` 逻辑锁定等精确分发到客户端日志，方便终端用户定位问题核心。
+
+---
+
+## 🚀 历史演进 (v1.2.0 & v1.1.0)
 
 RustRAG 迎来了底层向量库引擎和推理架构的双重进化：
 
@@ -27,7 +38,7 @@ RustRAG 迎来了底层向量库引擎和推理架构的双重进化：
 
 ## 核心特性
 
-- **10 个强大的 MCP 工具集** — 囊括语义检索 (`search`)、单文件入库 (`index_markdown`/`index_code`)、关联图谱 (`search_relations`) 等全面能力。
+- **7 个强大的 MCP 工具集** — 囊括语义检索 (`search`)、文件打标入库 (`index`)、元数据管理 (`frontmatter`)、关联图谱 (`search_relations`) 等全面能力。
 - **纯粹的本地向量搜索** — SQLite 联手强韧的 sqlite-vec，让毫秒级检索在本地数据库流畅翻飞。
 - **全息代码解析智网** — Native Tree-sitter AST 解析矩阵，目前深度支持：Rust, Go, Python, TypeScript, JavaScript 源文件。
 - **跨语种词典结网** — 首创从代码级提取 “中/日韩文↔英语” 的函数与注释符号映射。
@@ -96,9 +107,14 @@ cargo build --release
   "db_path": "./vectors.db",
   "chunk_size": 500,
   "search_top_k": 5,
+  "compute": {
+    "device": "auto",
+    "fallback_to_cpu": true
+  },
   "model": {
     "name": "multilingual-e5-small",
-    "dimensions": 384
+    "dimensions": 384,
+    "batch_size": 32
   }
 }
 ```
@@ -135,6 +151,37 @@ cargo build --release
 }
 ```
 
+#### 🌩️ 高阶：远程部署，本地调用 (Remote SSH Mode)
+
+如果您的代码库、运行环境和模型部署在远端高性能服务器（或局域网 NAS）上，而您日常使用本地笔电办公，完全可以**按上述步骤将 RustRAG 装在远端服务器**，然后通过 MCP 的标准 I/O 管道流特性，在本地 IDE 中进行**跨端挂载**！
+
+**前置认证要求（必读）：**
+MCP 客户端（如 Cursor / Claude Desktop）在后台静默拉起子进程时，**无法弹出密码输入框**供您交互。因此，必须配置无交互登录：
+
+- 🔑 **方案一：配置 SSH 密钥（强烈推荐，全平台原生兼容）**
+  本地机器生成密钥 (`ssh-keygen -t ed25519`) 并推送到远端 (`ssh-copy-id user@ip`)，实现免密安全的直连。原生支持 Windows / macOS / Linux。
+- 🔓 **方案二：使用 `sshpass` (仅限密码及 Linux / macOS)**
+  如果您无法配置密钥必须使用密码，可以将 `command` 替换为 `sshpass`（例如：`args: ["-p", "您的密码", "ssh", "user@ip", ...] `）。**注意**：`sshpass` 在 Linux 与 macOS (`brew install sshpass`) 下可用，但在 Windows 原生极其难装，Windows 用户请务必采用方案一。
+
+**连接配置示例 (以原生 SSH 为例)：**
+
+```json
+{
+  "mcpServers": {
+    "rustrag-remote": {
+      "command": "ssh",
+      "args": [
+        "user@remote.server.ip",    // 替换为您的远端服务器地址
+        "/绝对路径/rustrag",          // 远端 rustrag 程序的路径
+        "--config",
+        "/远端代码库/config.json"     // 远端项目里的配置文件路径
+      ]
+    }
+  }
+}
+```
+有了它，您的本地 AI 助手将能够光速洞悉远端服务器中数百万行的代码库，且本地完全不耗费任何性能卡顿。
+
 ## CLI 控制台指引
 
 | 开关命令          | 默认值        | 释义描述                                                       |
@@ -150,13 +197,10 @@ cargo build --release
 | 装备                 | 战术职能                                                                        |
 | -------------------- | ------------------------------------------------------------------------------- |
 | `search`             | NLU 语义向量降维搜索，支持强制后缀或路径通配拦截符查询                          |
-| `index_markdown`     | 针对单一 MD 原文档进行孤立同步建表                                              |
-| `index_code`         | 发动 Tree-sitter AST 横切并建立函数片段元索引                                   |
+| `index`              | 针对文档（Markdown/代码）进行 AST 横切、切割并建立块级与函数级特征向量聚合入库  |
+| `manage_document`    | 物理粉碎文档的向量历史，或者摧毁旧记录后热重建                                  |
 | `list_documents`     | 调取全部被管制的长文本凭证清单                                                  |
-| `delete_document`    | 物理粉碎文档的所有残留历史切片与矩阵集                                          |
-| `reindex_document`   | 摧毁旧记录后对单一文档实施热重建                                                |
-| `add_frontmatter`    | 给 Markdown 硬植入 YAML 元信息头部                                              |
-| `update_frontmatter` | 改写既有 YAML 元数据池                                                          |
+| `frontmatter`        | 给 Markdown 植入或覆盖更新 YAML 元信息头部                                      |
 | `search_relations`   | 深潜追剿代码间调用链路 (Calls)、继承 (Inherits) 与引入依赖 (Imports) 的树状图谱 |
 | `build_dictionary`   | 从源码字里行间蒸馏中日韩英全息词典                                              |
 
@@ -190,7 +234,7 @@ src/
 │   └── languages.rs  # 语言语法探查器组件
 └── mcp/              # MCP 桥接通讯层
     ├── server.rs     # stdio 指令生命周期守护长驻进程
-    └── tools.rs      # 10 大 Tool 的参数注册并实施路由反射
+    └── tools.rs      # 7 大 Tool 的参数注册并实施路由反射
 ```
 
 ## 语言适配支持层

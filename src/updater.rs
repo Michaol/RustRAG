@@ -13,8 +13,8 @@ use serde::{Deserialize, Serialize};
 
 // ── Constants ────────────────────────────────────────────────────────
 
-const GITHUB_API_URL: &str = "https://api.github.com/repos/tomohiro-owada/devrag/releases/latest";
-const RELEASE_URL: &str = "https://github.com/tomohiro-owada/devrag/releases/latest";
+const GITHUB_API_URL: &str = "https://api.github.com/repos/Michaol/RustRAG/releases/latest";
+const RELEASE_URL: &str = "https://github.com/Michaol/RustRAG/releases/latest";
 const CHECK_INTERVAL_SECS: u64 = 24 * 60 * 60; // 24 hours
 const CACHE_FILENAME: &str = ".rustrag_update_check";
 

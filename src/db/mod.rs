@@ -122,7 +122,11 @@ impl Db {
         info!("sqlite-vec version: {}", vec_version);
 
         // Configure connection
-        conn.execute_batch("PRAGMA foreign_keys = ON;")?;
+        conn.execute_batch(
+            "PRAGMA foreign_keys = ON;
+             PRAGMA journal_mode = WAL;
+             PRAGMA synchronous = NORMAL;",
+        )?;
 
         // Initialize schema
         conn.execute_batch(SCHEMA_SQL)?;
@@ -158,7 +162,11 @@ impl Db {
         let conn = Connection::open_in_memory()?;
         let vec_version: String = conn.query_row("SELECT vec_version()", [], |row| row.get(0))?;
         info!("sqlite-vec version: {}", vec_version);
-        conn.execute_batch("PRAGMA foreign_keys = ON;")?;
+        conn.execute_batch(
+            "PRAGMA foreign_keys = ON;
+             PRAGMA journal_mode = WAL;
+             PRAGMA synchronous = NORMAL;",
+        )?;
         conn.execute_batch(SCHEMA_SQL)?;
         Ok(Self { conn })
     }

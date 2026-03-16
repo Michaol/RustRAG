@@ -9,8 +9,10 @@ repository = "https://github.com/Michaol/RustRAG"
 
 [dependencies]
 # MCP 协议
-rmcp = { version = "0.16", features = ["server", "macros", "transport-io"] }
-tokio = { version = "1", features = ["full"] }
+rmcp = { version = "0.16", features = ["server", "macros", "transport-io", "transport-streamable-http-server"] }
+tokio = { version = "1", features = ["full", "signal"] }
+tokio-util = "0.7"
+axum = "0.7"
 
 # ONNX 推理
 ort = { version = "=2.0.0-rc.11", features = ["load-dynamic"] }
@@ -44,6 +46,9 @@ indicatif = "0.17"
 
 # CLI
 clap = { version = "4", features = ["derive"] }
+
+# 文件监听
+notify = "6.1.1"
 
 # 工具
 bytemuck = { version = "1", features = ["derive"] }

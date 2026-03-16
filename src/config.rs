@@ -51,6 +51,10 @@ fn default_dimensions() -> usize {
     384
 }
 
+fn default_batch_size() -> usize {
+    32
+}
+
 // ── Config structs ───────────────────────────────────────────────────
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -103,6 +107,9 @@ pub struct ModelConfig {
 
     #[serde(default = "default_dimensions")]
     pub dimensions: usize,
+
+    #[serde(default = "default_batch_size")]
+    pub batch_size: usize,
 }
 
 // ── Default impls ────────────────────────────────────────────────────
@@ -138,6 +145,7 @@ impl Default for ModelConfig {
         Self {
             name: default_model_name(),
             dimensions: default_dimensions(),
+            batch_size: default_batch_size(),
         }
     }
 }

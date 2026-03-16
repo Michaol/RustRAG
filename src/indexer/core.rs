@@ -9,6 +9,18 @@ use std::path::Path;
 use std::sync::Arc;
 use tokio::sync::Mutex as TokioMutex;
 
+/// Normalizes a path to absolute format, stripping Windows UNC prefixes.
+pub fn normalize_system_path(path: &Path) -> String {
+    let canonical = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+    let s = canonical.to_string_lossy();
+    let s = if s.starts_with(r"\\?\") {
+        &s[4..]
+    } else {
+        s.as_ref()
+    };
+    s.replace('\\', "/")
+}
+
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct CodeSyncResult {
     pub indexed: usize,
@@ -57,7 +69,7 @@ impl<'a, E: Embedder + ?Sized> Indexer<'a, E> {
         force: bool,
     ) -> Result<CodeSyncResult, Box<dyn std::error::Error>> {
         let dir = dir.as_ref();
-        let dir_str = dir.to_string_lossy().replace("\\", "/");
+        let dir_str = normalize_system_path(dir);
 
         // PHASE 4: Config Hot Reload & Hash Check
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
@@ -170,7 +182,7 @@ impl<'a, E: Embedder + ?Sized> Indexer<'a, E> {
 
         // Phase 2: Stale Cleanup
         // Find existing documents that start with the target directory but were not visited
-        let dir_str = dir.to_string_lossy().replace("\\", "/");
+        let dir_str = normalize_system_path(dir);
         for db_path in existing_docs.keys() {
             if db_path.starts_with(&dir_str) && !visited_paths.contains(db_path) {
                 let db_guard = self.db.lock().await;
@@ -183,8 +195,36 @@ impl<'a, E: Embedder + ?Sized> Indexer<'a, E> {
         Ok(result)
     }
 
+    pub async fn index_file(&self, path: &Path) -> Result<bool, Box<dyn std::error::Error>> {
+        let ext = path
+            .extension()
+            .and_then(|s| s.to_str())
+            .unwrap_or_default();
+        if !self.is_supported_extension(ext) {
+            return Ok(false);
+        }
+
+        let metadata = match path.metadata() {
+            Ok(m) => m,
+            Err(_) => return Ok(false),
+        };
+        let mod_time: DateTime<Utc> = match metadata.modified() {
+            Ok(m) => m.into(),
+            Err(_) => return Ok(false),
+        };
+        let path_str = normalize_system_path(path);
+
+        let success = if ext == "md" {
+            self.index_markdown(path, &path_str, mod_time).await.is_ok()
+        } else {
+            self.index_code_file(path, &path_str, mod_time).await.is_ok()
+        };
+
+        Ok(success)
+    }
+
     async fn index_markdown(
-        &mut self,
+        &self,
         real_path: &Path,
         db_path: &str,
         mod_time: DateTime<Utc>,
@@ -223,7 +263,7 @@ impl<'a, E: Embedder + ?Sized> Indexer<'a, E> {
     /// generates embeddings from enriched text (`language symbol_name: content`),
     /// and stores them with full code metadata.
     async fn index_code_file(
-        &mut self,
+        &self,
         real_path: &Path,
         db_path: &str,
         mod_time: DateTime<Utc>,

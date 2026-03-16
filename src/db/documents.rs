@@ -82,43 +82,7 @@ impl Db {
         );
 
         let tx = self.conn.transaction()?;
-
-        // Insert or update document and get the stable ID
-        let doc_id: i64 = tx.query_row(
-            r#"
-            INSERT INTO documents (filename, modified_at, indexed_at)
-            VALUES (?, ?, CURRENT_TIMESTAMP)
-            ON CONFLICT(filename) DO UPDATE SET
-                modified_at = excluded.modified_at,
-                indexed_at = CURRENT_TIMESTAMP
-            RETURNING id
-            "#,
-            params![filename, modified_at],
-            |row| row.get(0),
-        )?;
-
-        // Clean up old contents if any (re-indexing)
-        tx.execute(
-            "DELETE FROM vec_chunks WHERE rowid IN (SELECT id FROM chunks WHERE document_id = ?)",
-            params![doc_id],
-        )?;
-        tx.execute("DELETE FROM chunks WHERE document_id = ?", params![doc_id])?;
-
-        // Insert chunks and vectors
-        for (i, chunk) in chunks.iter().enumerate() {
-            tx.execute(
-                "INSERT INTO chunks (document_id, position, content) VALUES (?, ?, ?)",
-                params![doc_id, chunk.position as i64, chunk.content],
-            )?;
-            let chunk_id = tx.last_insert_rowid();
-
-            let vector_blob = serialize_vector_int8(&embeddings[i]);
-            tx.execute(
-                "INSERT INTO vec_chunks (rowid, embedding) VALUES (?, vec_int8(?))",
-                params![chunk_id, vector_blob],
-            )?;
-        }
-
+        upsert_document_and_insert_chunks(&tx, filename, modified_at, chunks, embeddings)?;
         tx.commit()?;
         Ok(())
     }
@@ -167,48 +131,25 @@ impl Db {
             "chunks and embeddings length mismatch"
         );
 
+        // Convert CodeChunks to plain Chunks for the shared base
+        let plain_chunks: Vec<Chunk<'_>> = chunks
+            .iter()
+            .map(|cc| Chunk {
+                position: cc.chunk.position,
+                content: cc.chunk.content,
+            })
+            .collect();
+
         let tx = self.conn.transaction()?;
+        let chunk_ids =
+            upsert_document_and_insert_chunks(&tx, filename, modified_at, &plain_chunks, embeddings)?;
 
-        let doc_id: i64 = tx.query_row(
-            r#"
-            INSERT INTO documents (filename, modified_at, indexed_at)
-            VALUES (?, ?, CURRENT_TIMESTAMP)
-            ON CONFLICT(filename) DO UPDATE SET
-                modified_at = excluded.modified_at,
-                indexed_at = CURRENT_TIMESTAMP
-            RETURNING id
-            "#,
-            params![filename, modified_at],
-            |row| row.get(0),
-        )?;
-
-        tx.execute(
-            "DELETE FROM vec_chunks WHERE rowid IN (SELECT id FROM chunks WHERE document_id = ?)",
-            params![doc_id],
-        )?;
-        tx.execute("DELETE FROM chunks WHERE document_id = ?", params![doc_id])?;
-
+        // Insert code-specific metadata
         for (i, code_chunk) in chunks.iter().enumerate() {
-            tx.execute(
-                "INSERT INTO chunks (document_id, position, content) VALUES (?, ?, ?)",
-                params![
-                    doc_id,
-                    code_chunk.chunk.position as i64,
-                    code_chunk.chunk.content
-                ],
-            )?;
-            let chunk_id = tx.last_insert_rowid();
-
-            let vector_blob = serialize_vector_int8(&embeddings[i]);
-            tx.execute(
-                "INSERT INTO vec_chunks (rowid, embedding) VALUES (?, vec_int8(?))",
-                params![chunk_id, vector_blob],
-            )?;
-
             tx.execute(
                 "INSERT INTO code_metadata (chunk_id, symbol_name, symbol_type, language, start_line, end_line, parent_symbol, signature) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                 params![
-                    chunk_id,
+                    chunk_ids[i],
                     code_chunk.symbol_name,
                     code_chunk.symbol_type,
                     code_chunk.language,
@@ -223,6 +164,59 @@ impl Db {
         tx.commit()?;
         Ok(())
     }
+}
+
+/// Shared logic: UPSERT document, delete old chunks/vectors, insert new ones.
+/// Returns the list of inserted chunk IDs (for code_metadata insertion).
+fn upsert_document_and_insert_chunks(
+    tx: &rusqlite::Transaction,
+    filename: &str,
+    modified_at: DateTime<Utc>,
+    chunks: &[Chunk<'_>],
+    embeddings: &[Vec<f32>],
+) -> Result<Vec<i64>> {
+    // UPSERT document
+    let doc_id: i64 = tx.query_row(
+        r#"
+        INSERT INTO documents (filename, modified_at, indexed_at)
+        VALUES (?, ?, CURRENT_TIMESTAMP)
+        ON CONFLICT(filename) DO UPDATE SET
+            modified_at = excluded.modified_at,
+            indexed_at = CURRENT_TIMESTAMP
+        RETURNING id
+        "#,
+        params![filename, modified_at],
+        |row| row.get(0),
+    )?;
+
+    // Clean up old contents
+    tx.execute(
+        "DELETE FROM vec_chunks WHERE rowid IN (SELECT id FROM chunks WHERE document_id = ?)",
+        params![doc_id],
+    )?;
+    tx.execute(
+        "DELETE FROM chunks WHERE document_id = ?",
+        params![doc_id],
+    )?;
+
+    // Insert chunks and vectors
+    let mut chunk_ids = Vec::with_capacity(chunks.len());
+    for (i, chunk) in chunks.iter().enumerate() {
+        tx.execute(
+            "INSERT INTO chunks (document_id, position, content) VALUES (?, ?, ?)",
+            params![doc_id, chunk.position as i64, chunk.content],
+        )?;
+        let chunk_id = tx.last_insert_rowid();
+        chunk_ids.push(chunk_id);
+
+        let vector_blob = serialize_vector_int8(&embeddings[i]);
+        tx.execute(
+            "INSERT INTO vec_chunks (rowid, embedding) VALUES (?, vec_int8(?))",
+            params![chunk_id, vector_blob],
+        )?;
+    }
+
+    Ok(chunk_ids)
 }
 
 #[cfg(test)]

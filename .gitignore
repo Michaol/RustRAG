@@ -6,8 +6,11 @@
 *.onnx
 models/
 
-# Config & secrets
-.env
+# Config & secre# Runtime temp
+temp_rustrag/
+temp_rustrag.zip
+vectors.db*
+*.dll
 config.json
 
 # Internal docs (not for public repo)

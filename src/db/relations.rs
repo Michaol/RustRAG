@@ -120,7 +120,7 @@ impl Db {
         let param_refs: Vec<&dyn rusqlite::ToSql> =
             params.iter().map(|p| p as &dyn rusqlite::ToSql).collect();
 
-        let mut stmt = self.conn.prepare(&query)?;
+        let mut stmt = self.conn.prepare_cached(&query)?;
         let rows = stmt.query_map(param_refs.as_slice(), map_basic_relation)?;
 
         let mut results = Vec::new();
@@ -201,7 +201,7 @@ impl Db {
         let param_refs: Vec<&dyn rusqlite::ToSql> =
             params.iter().map(|p| p as &dyn rusqlite::ToSql).collect();
 
-        let mut stmt = self.conn.prepare(&query)?;
+        let mut stmt = self.conn.prepare_cached(&query)?;
         let rows = stmt.query_map(param_refs.as_slice(), map_relation_with_source)?;
 
         let mut results = Vec::new();

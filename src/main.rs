@@ -3,8 +3,6 @@ use clap::Parser;
 use rustrag::config::Config;
 use rustrag::db::Db;
 use rustrag::embedder::download::default_model_dir;
-use rustrag::embedder::mock::MockEmbedder;
-use rustrag::embedder::onnx::OnnxEmbedder;
 use rustrag::indexer::core::Indexer;
 use rustrag::mcp::server::{McpContext, McpServer};
 use rustrag::updater;
@@ -31,6 +29,14 @@ struct Cli {
     /// Skip initial differential sync
     #[arg(long)]
     skip_sync: bool,
+
+    /// Transport mode: "stdio" or "http"
+    #[arg(long, default_value = "stdio")]
+    transport: String,
+
+    /// HTTP port (used if transport="http")
+    #[arg(long, default_value_t = 8765)]
+    port: u16,
 }
 
 #[tokio::main]
@@ -89,43 +95,29 @@ async fn main() -> Result<()> {
     tracing::info!(db_path = %config.db_path, "Opening database");
     let db = Db::open(&config.db_path).context("Failed to open database")?;
 
-    // 6. Initialize embedder (ONNX with fallback to Mock)
-    let embedder: Arc<dyn rustrag::embedder::Embedder> = match OnnxEmbedder::new(&model_dir) {
-        Ok(e) => {
-            tracing::info!(
-                "ONNX embedder initialized (dim={})",
-                config.model.dimensions
-            );
-            Arc::new(e)
-        }
-        Err(e) => {
-            tracing::warn!("ONNX embedder unavailable: {e}");
-            tracing::warn!("Using mock embedder — search results will be meaningless");
-            Arc::new(MockEmbedder::default())
-        }
-    };
-
-    // 7. Wrap db in Arc<TokioMutex> BEFORE sync so MCP and sync can share it
+    // 6. Wrap db in Arc<TokioMutex> BEFORE sync so MCP and sync can share it
     let db = Arc::new(TokioMutex::new(db));
 
-    // 8. Create MCP context (shares db, embedder, config)
-    let mcp_ctx = McpContext {
-        db: db.clone(),
-        config: config.clone(),
-        embedder: embedder.clone(),
+    // 7. Create MCP context (embedder is lazy-loaded on first search/index call)
+    let mcp_ctx = McpContext::new(
+        db.clone(),
+        config.clone(),
+        model_dir,
         chunk_size,
-    };
+    );
 
-    // 9. Spawn background sync task (non-blocking, MCP server starts immediately)
+    // 8. Spawn background sync task (non-blocking, MCP server starts immediately)
+    //    The sync task triggers lazy embedder initialization in the background,
+    //    so the MCP server can start accepting requests within ~100ms.
     if !cli.skip_sync {
-        let sync_db = db.clone();
-        let sync_embedder = embedder.clone();
-        let sync_config = config.clone();
-        let sync_chunk_size = chunk_size;
+        let sync_ctx = mcp_ctx.clone();
 
         tokio::spawn(async move {
-            let base_dirs = sync_config.get_base_directories();
+            let base_dirs = sync_ctx.config.get_base_directories();
             tracing::info!(dirs = ?base_dirs, "Background sync started");
+
+            // Trigger embedder lazy-init now (in background, not blocking MCP startup)
+            let sync_embedder = sync_ctx.get_embedder().await;
 
             for dir in &base_dirs {
                 if !dir.exists() {
@@ -139,10 +131,10 @@ async fn main() -> Result<()> {
                 // to minimize contention with MCP queries
                 let result = {
                     let mut indexer = Indexer::new(
-                        sync_db.clone(),
+                        sync_ctx.db.clone(),
                         sync_embedder.as_ref(),
-                        sync_chunk_size,
-                        sync_config.clone(),
+                        sync_ctx.chunk_size,
+                        sync_ctx.config.clone(),
                     );
                     indexer.index_directory(dir, false).await
                 };
@@ -171,10 +163,21 @@ async fn main() -> Result<()> {
         tracing::info!("Initial sync skipped (--skip-sync)");
     }
 
-    // 10. Start MCP server immediately (does NOT wait for sync)
-    tracing::info!("Starting MCP server on stdio transport...");
+    // 9. Start background file watcher (hot reload)
+    rustrag::watcher::start_watcher(mcp_ctx.clone());
+
+    // 10. Start MCP server immediately (does NOT wait for sync or embedder loading)
     let server = McpServer::new(mcp_ctx);
-    server.start().await?;
+    
+    match cli.transport.as_str() {
+        "http" => {
+            server.start_http(cli.port).await?;
+        }
+        "stdio" | _ => {
+            tracing::info!("Starting MCP server on stdio transport...");
+            server.start().await?;
+        }
+    }
 
     Ok(())
 }
