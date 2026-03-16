@@ -12,9 +12,11 @@ A high-performance local RAG (Retrieval-Augmented Generation) MCP Server written
 
 ---
 
-## 🚀 Latest Release (v1.3.0)
+## 🚀 Latest Release (v1.3.5)
 
 RustRAG brings deep user experience and robustness optimizations:
+
+- 💻 **Zero-Config GPU Acceleration**: Unlock native CUDA/TensorRT/DirectML throughput effortlessly by dropping Official ONNX dynamic libraries into your execution path, featuring intelligent safe-fallback to CPU across all platforms!
 
 - ⚙️ **Enhanced Config & Fault Tolerance**: `config.json` now supports tuning the Embedder's `batch_size` and toggling `compute.fallback_to_cpu` safe-fallback mode. No more OOM panic or accelerator (CUDA/CoreML) loading failures halting the engine.
 - 🔄 **Real-Time Hot-Reloading** (`File Watcher`): Integrated native cross-platform background filesystem events. Say goodbye to manual MCP `index` invokes. Any modifications, creations, or deletions to tracked files trigger an instantaneous background differential sync!
