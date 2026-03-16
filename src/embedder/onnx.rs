@@ -9,6 +9,7 @@ use std::sync::Mutex;
 use ort::session::Session;
 use ort::session::builder::GraphOptimizationLevel;
 use ort::value::Tensor;
+use ort::execution_providers::{CUDAExecutionProvider, DirectMLExecutionProvider, TensorRTExecutionProvider};
 use tracing::info;
 
 use super::tokenizer::BertTokenizer;
@@ -26,7 +27,7 @@ impl OnnxEmbedder {
     /// Create a new `OnnxEmbedder` by loading a model from the given directory.
     ///
     /// Expects `model.onnx` and `tokenizer.json` in `model_dir`.
-    pub fn new(model_dir: &Path, batch_size: usize) -> Result<Self, EmbedderError> {
+    pub fn new(model_dir: &Path, batch_size: usize, device: &str, fallback_to_cpu: bool) -> Result<Self, EmbedderError> {
         let model_path = model_dir.join("model.onnx");
 
         if !model_path.exists() {
@@ -38,10 +39,46 @@ impl OnnxEmbedder {
 
         info!("Initializing ONNX Runtime with Level 3 Graph Optimization...");
 
-        let session = Session::builder()
+        let mut builder = Session::builder()
             .map_err(|e| EmbedderError::ModelLoadFailed(format!("session builder error: {e}")))?
             .with_optimization_level(GraphOptimizationLevel::Level3)
-            .map_err(|e| EmbedderError::ModelLoadFailed(format!("optimization error: {e}")))?
+            .map_err(|e| EmbedderError::ModelLoadFailed(format!("optimization error: {e}")))?;
+
+        // Attach requested hardware execution providers
+        let is_auto = device == "auto";
+        let mut providers_attached = false;
+
+        if is_auto || device == "cuda" || device == "tensorrt" {
+            // Priority 1: TensorRT
+            if is_auto || device == "tensorrt" {
+                if let Ok(b) = builder.clone().with_execution_providers([TensorRTExecutionProvider::default().build()]) {
+                    builder = b;
+                    providers_attached = true;
+                    info!("Registered TensorRT Execution Provider");
+                }
+            }
+            // Priority 2: CUDA
+            if is_auto || device == "cuda" {
+                if let Ok(b) = builder.clone().with_execution_providers([CUDAExecutionProvider::default().build()]) {
+                    builder = b;
+                    providers_attached = true;
+                    info!("Registered CUDA Execution Provider");
+                }
+            }
+        }
+        
+        if is_auto || device == "directml" {
+            if let Ok(b) = builder.clone().with_execution_providers([DirectMLExecutionProvider::default().build()]) {
+                builder = b;
+                providers_attached = true;
+                info!("Registered DirectML Execution Provider");
+            }
+        }
+
+        if !fallback_to_cpu && !providers_attached {
+            return Err(EmbedderError::ModelLoadFailed("No requested execution provider is available and fallback_to_cpu is false".into()));
+        }
+        let session = builder
             .with_intra_threads(4)
             .map_err(|e| EmbedderError::ModelLoadFailed(format!("thread config error: {e}")))?
             .with_inter_threads(4)
@@ -313,7 +350,7 @@ mod tests {
             return;
         }
 
-        let embedder = OnnxEmbedder::new(model_dir, 32).unwrap();
+        let embedder = OnnxEmbedder::new(model_dir, 32, "auto", true).unwrap();
         let vec = embedder.embed("Hello, world!").unwrap();
 
         assert_eq!(vec.len(), 384);
@@ -332,7 +369,7 @@ mod tests {
             return;
         }
 
-        let embedder = OnnxEmbedder::new(model_dir, 32).unwrap();
+        let embedder = OnnxEmbedder::new(model_dir, 32, "auto", true).unwrap();
         let results = embedder.embed_batch(&["hello", "world"]).unwrap();
         assert_eq!(results.len(), 2);
         assert_eq!(results[0].len(), 384);

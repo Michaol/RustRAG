@@ -50,6 +50,8 @@ impl McpContext {
                 match crate::embedder::onnx::OnnxEmbedder::new(
                     &self.model_dir,
                     self.config.model.batch_size,
+                    &self.config.compute.device,
+                    self.config.compute.fallback_to_cpu,
                 ) {
                     Ok(e) => {
                         tracing::info!(
