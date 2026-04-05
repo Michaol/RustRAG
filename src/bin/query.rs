@@ -1,7 +1,7 @@
 use rustrag::db::Db;
+use rustrag::embedder::Embedder;
 use rustrag::embedder::download::default_model_dir;
 use rustrag::embedder::onnx::OnnxEmbedder;
-use rustrag::embedder::Embedder;
 
 fn main() {
     let db_path = "./vectors.db";

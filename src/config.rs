@@ -331,9 +331,7 @@ fn double_star_glob(pattern: &str) -> Result<Vec<PathBuf>> {
     let base_dir = if parts[0].is_empty() {
         ".".to_string()
     } else {
-        parts[0]
-            .trim_end_matches(['/', '\\'])
-            .to_string()
+        parts[0].trim_end_matches(['/', '\\']).to_string()
     };
     let suffix = parts[1].trim_start_matches(['/', '\\']);
 
