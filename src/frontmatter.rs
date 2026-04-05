@@ -226,4 +226,33 @@ mod tests {
         assert!(result.contains("domain: new"));
         assert!(result.contains("language: rust"));
     }
+
+    #[test]
+    fn test_parse_unclosed_frontmatter() {
+        let result = parse("---\nkey: value\nother: stuff");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_generate_empty_metadata() {
+        let meta = Metadata::default();
+        let fm = generate(&meta);
+        assert_eq!(fm, "---\n---\n");
+    }
+
+    #[test]
+    fn test_update_adds_when_none_exists() {
+        let mut temp = tempfile::NamedTempFile::new().unwrap();
+        write!(temp, "# Doc\n").unwrap();
+
+        let meta = Metadata {
+            domain: "new".into(),
+            ..Default::default()
+        };
+        update_frontmatter(temp.path(), &meta).unwrap();
+
+        let result = fs::read_to_string(temp.path()).unwrap();
+        assert!(result.contains("domain: new"));
+        assert!(result.contains("# Doc"));
+    }
 }

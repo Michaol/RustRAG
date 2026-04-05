@@ -55,11 +55,7 @@ impl<'a, E: Embedder + ?Sized> Indexer<'a, E> {
 
     /// Checks if a file extension is supported
     fn is_supported_extension(&self, ext: &str) -> bool {
-        let base_supported = matches!(ext, "md" | "rs" | "go" | "py" | "js" | "ts");
-        match &self.config.file_extensions {
-            Some(exts) => base_supported && exts.iter().any(|e| e == ext),
-            None => base_supported,
-        }
+        self.config.is_file_extension_supported(ext)
     }
 
     /// Indexes all supported files in a directory with differential sync
@@ -178,15 +174,18 @@ impl<'a, E: Embedder + ?Sized> Indexer<'a, E> {
             }
         }
 
-        // Phase 2: Stale Cleanup
-        // Find existing documents that start with the target directory but were not visited
+        // Phase 2: Stale Cleanup — collect stale paths, then delete in a single batch
         let dir_str = normalize_system_path(dir);
-        for db_path in existing_docs.keys() {
-            if db_path.starts_with(&dir_str) && !visited_paths.contains(db_path) {
-                let db_guard = self.db.lock().await;
-                if let Ok(true) = db_guard.delete_document(db_path) {
-                    result.removed += 1;
-                }
+        let stale_paths: Vec<&str> = existing_docs
+            .keys()
+            .filter(|p| p.starts_with(&dir_str) && !visited_paths.contains(p.as_str()))
+            .map(|p| p.as_str())
+            .collect();
+
+        if !stale_paths.is_empty() {
+            let db_guard = self.db.lock().await;
+            if let Ok(removed) = db_guard.delete_documents_batch(&stale_paths) {
+                result.removed += removed;
             }
         }
 

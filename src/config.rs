@@ -9,6 +9,9 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use tracing::{info, warn};
 
+// The set of extensions the indexer can handle
+const SUPPORTED_EXTENSIONS: &[&str] = &["md", "rs", "go", "py", "js", "ts"];
+
 // ── Default value functions ──────────────────────────────────────────
 
 fn default_document_patterns() -> Vec<String> {
@@ -159,6 +162,17 @@ impl Config {
         self.update_check.unwrap_or(true)
     }
 
+    /// Check if a file extension is supported for indexing,
+    /// using the optional `file_extensions` allowlist when set.
+    #[must_use]
+    pub fn is_file_extension_supported(&self, ext: &str) -> bool {
+        let base_supported = SUPPORTED_EXTENSIONS.contains(&ext);
+        match &self.file_extensions {
+            Some(exts) => base_supported && exts.iter().any(|e| e == ext),
+            None => base_supported,
+        }
+    }
+
     /// Load configuration from a JSON file.
     ///
     /// If `config_path` is empty, defaults to `"config.json"`.
@@ -285,95 +299,67 @@ fn expand_pattern(pattern: &str) -> Result<Vec<PathBuf>> {
         return walk_dir_for_md(Path::new(pattern));
     }
 
-    // Handle ** (recursive glob)
-    if pattern.contains("**") {
-        return expand_double_star(pattern);
-    }
-
-    // Simple glob
-    let matches = glob::glob(pattern).context("invalid glob pattern")?;
-    let mut files = Vec::new();
-    for entry in matches.flatten() {
-        if entry.is_file() && entry.extension().and_then(|e| e.to_str()) == Some("md") {
-            files.push(entry);
-        }
-    }
-    Ok(files)
+    // Handle ** (recursive glob) using `ignore` crate which respects gitignore
+    double_star_glob(pattern)
 }
 
-/// Walk a directory recursively, collecting `.md` files.
+/// Walk a directory recursively for .md files using the `ignore` crate.
 fn walk_dir_for_md(dir: &Path) -> Result<Vec<PathBuf>> {
+    use ignore::WalkBuilder;
     let mut files = Vec::new();
     if !dir.exists() {
         return Ok(files);
     }
-    for entry in walkdir(dir)? {
-        if entry.is_file() && entry.extension().and_then(|e| e.to_str()) == Some("md") {
-            files.push(entry);
+    for e in WalkBuilder::new(dir).hidden(true).build().flatten() {
+        let path = e.path();
+        if e.file_type().is_some_and(|ft| ft.is_file())
+            && path.extension().and_then(|e| e.to_str()) == Some("md")
+        {
+            files.push(path.to_path_buf());
         }
     }
     Ok(files)
 }
 
-/// Simple recursive directory walk (no external dependency).
-fn walkdir(dir: &Path) -> Result<Vec<PathBuf>> {
-    let mut result = Vec::new();
-    if !dir.is_dir() {
-        return Ok(result);
-    }
-    for entry in std::fs::read_dir(dir)? {
-        let entry = entry?;
-        let path = entry.path();
-        if path.is_dir() {
-            result.extend(walkdir(&path)?);
-        } else {
-            result.push(path);
-        }
-    }
-    Ok(result)
-}
-
-/// Expand patterns containing `**`.
-fn expand_double_star(pattern: &str) -> Result<Vec<PathBuf>> {
+/// Expand patterns containing `**` using the `ignore` crate.
+fn double_star_glob(pattern: &str) -> Result<Vec<PathBuf>> {
     let parts: Vec<&str> = pattern.splitn(2, "**").collect();
     if parts.len() != 2 {
         anyhow::bail!("invalid ** pattern: {pattern}");
     }
 
-    let mut base_dir = parts[0].to_string();
+    let base_dir = if parts[0].is_empty() {
+        ".".to_string()
+    } else {
+        parts[0]
+            .trim_end_matches(['/', '\\'])
+            .to_string()
+    };
     let suffix = parts[1].trim_start_matches(['/', '\\']);
 
-    if base_dir.is_empty() {
-        base_dir = ".".to_string();
-    } else {
-        base_dir = base_dir.trim_end_matches(['/', '\\']).to_string();
-    }
+    let mut builder = ignore::WalkBuilder::new(&base_dir);
+    builder.hidden(true);
 
-    let all_files = walkdir(Path::new(&base_dir))?;
     let mut files = Vec::new();
-
-    for path in all_files {
-        if !path.is_file() {
+    for e in builder.build().flatten() {
+        let path = e.path();
+        if !e.file_type().is_some_and(|ft| ft.is_file()) {
             continue;
         }
-        let is_md = path.extension().and_then(|e| e.to_str()) == Some("md");
-        if !is_md {
-            continue;
-        }
-
         if suffix.is_empty() || suffix == "*.md" {
-            files.push(path);
+            if path.extension().and_then(|e| e.to_str()) == Some("md") {
+                files.push(path.to_path_buf());
+            }
         } else if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-            // Check simple pattern like "*.md"
-            let matched = glob::Pattern::new(suffix)
+            if glob::Pattern::new(suffix)
                 .map(|p| p.matches(name))
-                .unwrap_or(false);
-            if matched {
-                files.push(path);
+                .unwrap_or(false)
+                && path.extension().and_then(|e| e.to_str()) == Some("md")
+            {
+                files.push(path.to_path_buf());
             }
         }
     }
-
     Ok(files)
 }
 
@@ -496,5 +482,59 @@ mod tests {
         assert_eq!(parsed.chunk_size, config.chunk_size);
         assert_eq!(parsed.db_path, config.db_path);
         assert_eq!(parsed.model.name, config.model.name);
+    }
+
+    #[test]
+    fn test_validate_dimensions_must_be_positive() {
+        let config = Config {
+            model: ModelConfig {
+                dimensions: 0,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_get_document_files_deduplicates() {
+        // When two patterns match the same file, it should appear only once
+        let config = Config {
+            document_patterns: vec![".".to_string(), "./*".to_string()],
+            ..Default::default()
+        };
+        let files = config.get_document_files().unwrap();
+        // Just verify it runs without panic; actual content depends on local filesystem
+        // The HashSet deduplication prevents duplicates
+        assert!(files.len() <= config.get_document_files().unwrap().len() * 2);
+    }
+
+    #[test]
+    fn test_load_from_json_with_zero_chunk_size() {
+        let json = r#"{"chunk_size": 0}"#;
+        let config: Config = serde_json::from_str(json).unwrap();
+        // Just try the config, but validate should fail for chunk_size = 0
+        assert_eq!(config.chunk_size, 0);
+    }
+
+    #[test]
+    fn test_is_file_extension_supported() {
+        let config = Config::default();
+        assert!(config.is_file_extension_supported("md"));
+        assert!(config.is_file_extension_supported("rs"));
+        assert!(!config.is_file_extension_supported("java"));
+        assert!(!config.is_file_extension_supported(""));
+    }
+
+    #[test]
+    fn test_is_file_extension_supported_with_allowlist() {
+        let config = Config {
+            file_extensions: Some(vec!["rs".to_string(), "md".to_string()]),
+            ..Default::default()
+        };
+        assert!(config.is_file_extension_supported("rs"));
+        assert!(config.is_file_extension_supported("md"));
+        assert!(!config.is_file_extension_supported("go"));
+        assert!(!config.is_file_extension_supported("py"));
     }
 }

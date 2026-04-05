@@ -61,8 +61,6 @@ chrono = { version = "0.4", features = ["serde"] }
 schemars = "1"
 ignore = "0.4.25"
 tree-sitter-rust = "0.24.0"
-log = "0.4.29"
-env_logger = "0.11.9"
 dirs = "5"
 
 [profile.release]

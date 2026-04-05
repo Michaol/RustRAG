@@ -39,6 +39,36 @@ impl Db {
         Ok(rows)
     }
 
+    /// Deletes a batch of documents in a single transaction.
+    pub fn delete_documents_batch(&self, filenames: &[&str]) -> Result<usize> {
+        if filenames.is_empty() {
+            return Ok(0);
+        }
+
+        let tx = self.conn.unchecked_transaction()?;
+        let mut removed = 0;
+        for &filename in filenames {
+            if let Some(doc_id) = tx
+                .query_row(
+                    "SELECT id FROM documents WHERE filename = ?",
+                    params![filename],
+                    |row| row.get::<_, i64>(0),
+                )
+                .optional()?
+            {
+                tx.execute(
+                    "DELETE FROM vec_chunks WHERE rowid IN (SELECT id FROM chunks WHERE document_id = ?)",
+                    params![doc_id],
+                )?;
+                tx.execute("DELETE FROM chunks WHERE document_id = ?", params![doc_id])?;
+                tx.execute("DELETE FROM documents WHERE id = ?", params![doc_id])?;
+                removed += 1;
+            }
+        }
+        tx.commit()?;
+        Ok(removed)
+    }
+
     /// Deletes a document and its associated chunks from the database
     pub fn delete_document(&self, filename: &str) -> Result<bool> {
         let doc_id: Option<i64> = self
@@ -303,5 +333,62 @@ mod tests {
             .query_row("SELECT COUNT(*) FROM vec_chunks", [], |row| row.get(0))
             .unwrap();
         assert_eq!(vec_chunks_count, 0);
+    }
+
+    #[test]
+    fn test_delete_documents_batch() {
+        let mut db = Db::open_in_memory().unwrap();
+        let now = Utc::now();
+
+        db.insert_document(
+            "a.md",
+            now,
+            &[Chunk {
+                position: 0,
+                content: "A",
+            }],
+            &[vec![0.1; 384]],
+        )
+        .unwrap();
+        db.insert_document(
+            "b.md",
+            now,
+            &[Chunk {
+                position: 0,
+                content: "B",
+            }],
+            &[vec![0.2; 384]],
+        )
+        .unwrap();
+        db.insert_document(
+            "c.md",
+            now,
+            &[Chunk {
+                position: 0,
+                content: "C",
+            }],
+            &[vec![0.3; 384]],
+        )
+        .unwrap();
+
+        // Batch delete 2 of 3
+        let removed = db.delete_documents_batch(&["a.md", "c.md"]).unwrap();
+        assert_eq!(removed, 2);
+
+        // Only b.md should remain
+        let docs = db.list_documents().unwrap();
+        assert_eq!(docs.len(), 1);
+        assert!(docs.contains_key("b.md"));
+
+        // Empty batch returns 0
+        let removed = db.delete_documents_batch(&[]).unwrap();
+        assert_eq!(removed, 0);
+    }
+
+    #[test]
+    fn test_delete_nonexistent_document() {
+        let db = Db::open_in_memory().unwrap();
+        let deleted = db.delete_document("nonexistent.md").unwrap();
+        assert!(!deleted);
     }
 }

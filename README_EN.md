@@ -19,6 +19,13 @@ v1.3.6 introduces a native hot-reloading mechanism for configurations and model 
 - **GPU Inference Engine Hot-Reloading**: The core model execution environment is now decoupled using read-write locks (`RwLock`). Modifying hardware strategies (`device`) or parameters in `config.json` will automatically release the previous ONNX inference graph and reinitialize it with the new settings on the next request, requiring no service restart.
 - **Dynamic Config & Watcher Sync**: The system now monitors `config.json` for changes. Any modification immediately reloads the configuration and adjusts the background file-watching processes in real-time according to updated inclusion/exclusion filtering rules.
 
+Subsequent v1.3.6 optimizations and enhancements:
+
+- **Unified File Type Validation**: Introduced `Config::is_file_extension_supported` shared method, eliminating duplicated extension-check logic across `indexer`, `watcher`, and `tools` modules.
+- **Deduplicated Search Results**: Vector and keyword search results are now merged with deduplication by `(document_name, position)` key, preventing duplicate content fragments.
+- **`model.dimensions` Config Now Effective**: The configured dimension value is correctly forwarded to `OnnxEmbedder`, enabling custom embedding model dimensions.
+- **Directory Traversal Migrated to `ignore` crate**: Replaced handwritten `walkdir` functions in the config module, reusing the existing dependency for better `.gitignore` compatibility.
+
 ---
 
 <details>
