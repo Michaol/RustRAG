@@ -23,18 +23,16 @@ v1.3.7 builds on the hot-reloading mechanism from v1.3.6 with several code quali
 
 ---
 
+<details>
+<summary><b>Expand to view History (v1.3.6 and prior)</b></summary>
+<br>
+
 ### v1.3.6 Config Hot-Reload
 
 v1.3.6 introduced a native hot-reloading mechanism for configurations and model instances via `RwLock`:
 
 - **GPU Inference Engine Hot-Reloading**: The core model execution environment is now decoupled using read-write locks (`RwLock`). Modifying hardware strategies (`device`) or parameters in `config.json` will automatically release the previous ONNX inference graph and reinitialize it with the new settings on the next request, requiring no service restart.
 - **Dynamic Config & Watcher Sync**: The system now monitors `config.json` for changes. Any modification immediately reloads the configuration and adjusts the background file-watching processes in real-time according to updated inclusion/exclusion filtering rules.
-
----
-
-<details>
-<summary><b>Expand to view History (v1.3.5 and prior)</b></summary>
-<br>
 
 ### v1.3.5 Hardware Acceleration Update
 
