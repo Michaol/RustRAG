@@ -1,15 +1,15 @@
 use rustrag::db::Db;
-use rustrag::embedder::{Embedder, onnx::OnnxEmbedder};
-use std::path::Path;
+use rustrag::embedder::download::default_model_dir;
+use rustrag::embedder::onnx::OnnxEmbedder;
+use rustrag::embedder::Embedder;
 
-#[tokio::main]
-async fn main() {
-    let db_path = "C:/Users/michaol/AppData/Local/RustRAG/vectors.db";
-    let model_path = "C:/Users/michaol/AppData/Local/RustRAG/models/multilingual-e5-small";
+fn main() {
+    let db_path = "./vectors.db";
+    let model_path = default_model_dir();
 
     let db = Db::open(db_path).expect("Failed to open DB");
     let embedder =
-        OnnxEmbedder::new(Path::new(model_path), 32, "auto", true).expect("Failed to load model");
+        OnnxEmbedder::new(&model_path, 32, 384, "auto", true).expect("Failed to load model");
 
     let queries = vec![
         "Passwall intermittent DNS resolution failures, NFTSET troubleshooting",
@@ -18,7 +18,7 @@ async fn main() {
 
     for query in queries {
         println!("==============================================");
-        println!("🔍 Query: {}", query);
+        println!("Query: {}", query);
         let emb = embedder.embed(query).expect("Failed to embed");
         let results = db.search(&emb, 3).expect("Search failed");
 
@@ -28,7 +28,7 @@ async fn main() {
                 .chars()
                 .take(120)
                 .collect::<String>()
-                .replace("\n", " ");
+                .replace('\n', " ");
             println!(
                 "   [{}] Score: {:.4} | File: {}",
                 i + 1,

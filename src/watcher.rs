@@ -76,8 +76,8 @@ pub async fn start_watcher(ctx: McpContext) {
             if let Some(path) = rx.recv().await {
                 paths_to_process.insert(path);
 
-                // Wait up to 2 seconds for more events to batch them (debounce)
-                let _ = tokio::time::timeout(Duration::from_millis(2000), async {
+                // Debounce: wait 500ms for more events to batch them
+                let _ = tokio::time::timeout(Duration::from_millis(500), async {
                     while let Some(p) = rx.recv().await {
                         paths_to_process.insert(p);
                     }
@@ -151,15 +151,8 @@ pub async fn start_watcher(ctx: McpContext) {
 
 async fn process_file_change(path: &Path, ctx: &McpContext) {
     let ext = path.extension().and_then(|s| s.to_str()).unwrap_or("");
-    let base_supported = matches!(ext, "md" | "rs" | "go" | "py" | "js" | "ts");
     let config_guard = ctx.config.read().await;
-    let is_supported = match &config_guard.file_extensions {
-        Some(exts) => base_supported && exts.iter().any(|e| e == ext),
-        None => base_supported,
-    };
-    drop(config_guard);
-
-    if !is_supported {
+    if !config_guard.is_file_extension_supported(ext) {
         return;
     }
 

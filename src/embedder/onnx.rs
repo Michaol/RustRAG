@@ -33,6 +33,7 @@ impl OnnxEmbedder {
     pub fn new(
         model_dir: &Path,
         batch_size: usize,
+        dimensions: usize,
         device: &str,
         fallback_to_cpu: bool,
     ) -> Result<Self, EmbedderError> {
@@ -116,7 +117,7 @@ impl OnnxEmbedder {
         Ok(Self {
             session: Mutex::new(session),
             tokenizer,
-            dimensions: 384,
+            dimensions,
             batch_size,
         })
     }
@@ -370,7 +371,7 @@ mod tests {
             return;
         }
 
-        let embedder = OnnxEmbedder::new(model_dir, 32, "auto", true).unwrap();
+        let embedder = OnnxEmbedder::new(model_dir, 32, 384, "auto", true).unwrap();
         let vec = embedder.embed("Hello, world!").unwrap();
 
         assert_eq!(vec.len(), 384);
@@ -389,7 +390,7 @@ mod tests {
             return;
         }
 
-        let embedder = OnnxEmbedder::new(model_dir, 32, "auto", true).unwrap();
+        let embedder = OnnxEmbedder::new(model_dir, 32, 384, "auto", true).unwrap();
         let results = embedder.embed_batch(&["hello", "world"]).unwrap();
         assert_eq!(results.len(), 2);
         assert_eq!(results[0].len(), 384);

@@ -3,15 +3,21 @@
 
 # Database & models
 *.db
+vectors.db-shm
+vectors.db-wal
 *.onnx
 models/
 
-# Config & secre# Runtime temp
+# Runtime
+*.dll
+
+# Config
+config.json
+test_config.json
+
+# Packaging temp
 temp_rustrag/
 temp_rustrag.zip
-vectors.db*
-*.dll
-config.json
 
 # Internal docs (not for public repo)
 docs/
@@ -25,3 +31,6 @@ docs/
 .vscode/
 *.swp
 *.swo
+
+# Claude Code
+.claude/

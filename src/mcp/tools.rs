@@ -10,6 +10,7 @@
 /// 7. build_dictionary – build multilingual word dictionary
 use crate::db::search::SearchFilter;
 use crate::frontmatter;
+use crate::indexer::core::Indexer;
 use crate::indexer::{
     code_parser::CodeParser,
     dictionary::{self, DictionaryExtractor},
@@ -25,6 +26,7 @@ use rmcp::{
 use schemars::JsonSchema;
 use serde::Deserialize;
 use std::path::Path;
+use std::sync::Arc;
 
 // ── Parameter structs ────────────────────────────────────────────────
 
@@ -213,10 +215,16 @@ impl AppTools {
         };
         drop(config_guard);
 
+        // Merge vector + keyword results, deduplicating by (document_name, position)
+        let mut seen = std::collections::HashSet::new();
         let results_json: Vec<serde_json::Value> = results
             .iter()
             .chain(keyword_results.iter())
-            .map(|r| {
+            .filter_map(|r| {
+                let key = (r.document_name.clone(), r.position);
+                if !seen.insert(key) {
+                    return None; // Already seen this chunk from vector search
+                }
                 let mut obj = serde_json::json!({
                     "document": r.document_name,
                     "content": r.chunk_content,
@@ -232,7 +240,7 @@ impl AppTools {
                     obj["parent_symbol"] = serde_json::json!(meta.parent_symbol);
                     obj["signature"] = serde_json::json!(meta.signature);
                 }
-                obj
+                Some(obj)
             })
             .collect();
 
@@ -308,82 +316,33 @@ impl AppTools {
             }));
         }
 
-        // Directory indexing
+        // Directory indexing — delegate to Indexer to avoid duplicating walker logic
         if let Some(dir) = &p.directory {
             let force = p.force.unwrap_or(false);
+            let embedder = self.ctx.get_embedder().await;
+            let config = self.ctx.config.read().await.clone();
+            let mut indexer = Indexer::new(
+                self.ctx.db.clone(),
+                embedder.as_ref(),
+                self.ctx.chunk_size,
+                Arc::new(config),
+            );
 
-            // Build overrides from config
-            let mut overrides = ignore::overrides::OverrideBuilder::new(dir);
-
-            let config_guard = self.ctx.config.read().await;
-            for pattern in &config_guard.exclude_patterns {
-                let _ = overrides.add(&format!("!{}", pattern));
-            }
-            let file_extensions = config_guard.file_extensions.clone();
-            drop(config_guard);
-            let override_matcher = overrides.build().unwrap_or_else(|_| {
-                ignore::overrides::OverrideBuilder::new(dir)
-                    .build()
-                    .unwrap()
-            });
-
-            let walker = ignore::WalkBuilder::new(dir)
-                .hidden(false)
-                .overrides(override_matcher)
-                .build();
-
-            let mut success_count = 0u32;
-            let mut skip_count = 0u32;
-            let mut fail_count = 0u32;
-
-            // Pre-load existing documents once (avoids O(N²) per-file DB query)
-            let existing_docs = if !force {
-                let db = self.ctx.db.lock().await;
-                db.list_documents().unwrap_or_default()
-            } else {
-                std::collections::HashMap::new()
+            let result = match indexer.index_directory(dir, force).await {
+                Ok(r) => r,
+                Err(e) => return error_result(&format!("directory indexing failed: {e}")),
             };
-
-            for entry in walker.into_iter().filter_map(|e| e.ok()) {
-                let path = entry.path();
-                if path.is_dir() {
-                    continue;
-                }
-
-                let ext = path.extension().and_then(|s| s.to_str()).unwrap_or("");
-                let base_supported = matches!(ext, "md" | "rs" | "go" | "py" | "js" | "ts");
-                let is_supported = match &file_extensions {
-                    Some(exts) => base_supported && exts.iter().any(|e| e == ext),
-                    None => base_supported,
-                };
-
-                if !is_supported {
-                    continue;
-                }
-
-                // Check if already indexed (unless force)
-                if !force {
-                    let db_path = path.to_string_lossy().replace('\\', "/");
-                    if existing_docs.contains_key(&db_path) {
-                        skip_count += 1;
-                        continue;
-                    }
-                }
-
-                let fp_str = path.to_string_lossy().to_string();
-                match index_single_file(path, &fp_str, &self.ctx).await {
-                    Ok(_) => success_count += 1,
-                    Err(_) => fail_count += 1,
-                }
-            }
 
             return json_result(serde_json::json!({
                 "success": true,
                 "message": "Directory indexing completed",
                 "directory": dir,
-                "files_indexed": success_count,
-                "files_skipped": skip_count,
-                "files_failed": fail_count,
+                "files_indexed": result.indexed,
+                "files_added": result.added,
+                "files_updated": result.updated,
+                "files_skipped": result.skipped,
+                "files_removed": result.removed,
+                "files_failed": result.failed,
             }));
         }
 
@@ -448,11 +407,6 @@ impl AppTools {
                 let db = self.ctx.db.lock().await;
                 db.delete_document(&p.filename)
                     .map_err(|e| McpError::internal_error(format!("delete failed: {e}"), None))?;
-
-                // Also try to remove from filesystem (warn on failure)
-                if let Err(e) = std::fs::remove_file(&p.filename) {
-                    log::warn!("Failed to delete file {}: {e}", p.filename);
-                }
 
                 json_result(serde_json::json!({
                     "success": true,

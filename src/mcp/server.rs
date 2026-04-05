@@ -60,6 +60,7 @@ impl McpContext {
         match crate::embedder::onnx::OnnxEmbedder::new(
             &self.model_dir,
             config.model.batch_size,
+            config.model.dimensions,
             &config.compute.device,
             config.compute.fallback_to_cpu,
         ) {
@@ -107,6 +108,19 @@ impl McpContext {
             let mut embedder_guard = self.embedder.write().await;
             *embedder_guard = None;
         }
+    }
+
+    /// Create an Indexer with the current embedder and config.
+    pub async fn create_indexer<'e, E: crate::embedder::Embedder>(
+        &self,
+        embedder: &'e E,
+    ) -> crate::indexer::core::Indexer<'e, E> {
+        crate::indexer::core::Indexer::new(
+            self.db.clone(),
+            embedder,
+            self.chunk_size,
+            Arc::new(self.config.read().await.clone()),
+        )
     }
 }
 
