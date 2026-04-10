@@ -12,19 +12,18 @@ RustRAG 是一个使用 Rust 编写的高性能、纯本地的检索增强生成
 
 ---
 
-## 最新版本发布 (v1.3.7)
+## 最新版本发布 (v2.0.0)
 
-v1.3.7 在 v1.3.6 配置热重载的基础上，进一步修复了 CI 持续集成流水线失败的问题，并对多个核心模块进行了代码质量增强：
+v2.0.0 将嵌入模型从 `model.onnx`（470MB）迁移至 HuggingFace 官方提供的 `model_O4.onnx`（235MB），实现模型文件与运行时内存占用减半：
 
-- **统一文件类型校验**：新增 `Config::is_file_extension_supported` 共享方法，消除 `indexer`、`watcher`、`tools` 三处的扩展名校验重复逻辑。
-- **向量与关键词搜索结果去重**：合并向量检索与关键词搜索时，通过 `HashSet` 按 `(document_name, position)` 去重，消除同一内容片段的重复返回。
-- **`model.dimensions` 配置项生效**：配置中的维度值已正确传递至 `OnnxEmbedder`，支持自定义嵌入模型维度。
-- **目录遍历迁移至 `ignore` crate**：替换配置模块中的手写 `walkdir` 函数，复用已有依赖，提升 `.gitignore` 过滤兼容性。
+- **ONNX O4 图优化模型**：采用 ONNX Graph Optimization Level 4 预优化模型，向量输出与原版完全一致，数据库 100% 兼容，无需重建索引。
+- **模型体积减半**：下载体积从 ~470MB 降至 ~235MB，运行时内存从 ~500MB 降至 ~250MB。
+- **自动迁移清理**：已有旧版 `model.onnx` 的用户，程序将自动检测并清理旧文件，无感升级。
 
 ---
 
 <details>
-<summary><b>展开查看历史演进 (v1.3.6 及更早版本)</b></summary>
+<summary><b>展开查看历史演进 (v1.3.7 及更早版本)</b></summary>
 <br>
 
 ### v1.3.6 配置热重载

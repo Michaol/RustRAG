@@ -12,19 +12,18 @@ A high-performance local RAG (Retrieval-Augmented Generation) MCP Server written
 
 ---
 
-## Latest Release (v1.3.7)
+## Latest Release (v2.0.0)
 
-v1.3.7 builds on the hot-reloading mechanism from v1.3.6 with several code quality improvements and CI fixes:
+v2.0.0 migrates the embedding model from `model.onnx` (470MB) to the official `model_O4.onnx` (235MB) provided by HuggingFace, halving both file size and runtime memory:
 
-- **Unified File Type Validation**: Introduced `Config::is_file_extension_supported` shared method, eliminating duplicated extension-check logic across `indexer`, `watcher`, and `tools` modules.
-- **Deduplicated Search Results**: Vector and keyword search results are now merged with deduplication by `(document_name, position)` key, preventing duplicate content fragments.
-- **`model.dimensions` Config Now Effective**: The configured dimension value is correctly forwarded to `OnnxEmbedder`, enabling custom embedding model dimensions.
-- **Directory Traversal Migrated to `ignore` crate**: Replaced handwritten `walkdir` functions in the config module, reusing the existing dependency for better `.gitignore` compatibility.
+- **ONNX O4 Graph-Optimized Model**: Uses the pre-optimized ONNX Graph Optimization Level 4 model. Vector output is identical to the original — existing databases are 100% compatible with no re-indexing required.
+- **Model Size Halved**: Download size reduced from ~470MB to ~235MB, runtime memory from ~500MB to ~250MB.
+- **Automatic Migration Cleanup**: Users with existing `model.onnx` files will have the old model automatically detected and removed on startup.
 
 ---
 
 <details>
-<summary><b>Expand to view History (v1.3.6 and prior)</b></summary>
+<summary><b>Expand to view History (v1.3.7 and prior)</b></summary>
 <br>
 
 ### v1.3.6 Config Hot-Reload
