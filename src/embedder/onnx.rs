@@ -29,7 +29,7 @@ pub struct OnnxEmbedder {
 impl OnnxEmbedder {
     /// Create a new `OnnxEmbedder` by loading a model from the given directory.
     ///
-    /// Expects `model.onnx` and `tokenizer.json` in `model_dir`.
+    /// Expects `model_O4.onnx` and `tokenizer.json` in `model_dir`.
     pub fn new(
         model_dir: &Path,
         batch_size: usize,
@@ -37,11 +37,11 @@ impl OnnxEmbedder {
         device: &str,
         fallback_to_cpu: bool,
     ) -> Result<Self, EmbedderError> {
-        let model_path = model_dir.join("model.onnx");
+        let model_path = model_dir.join("model_O4.onnx");
 
         if !model_path.exists() {
             return Err(EmbedderError::ModelLoadFailed(format!(
-                "model.onnx not found in {}",
+                "model_O4.onnx not found in {}",
                 model_dir.display()
             )));
         }
@@ -366,7 +366,7 @@ mod tests {
     #[ignore]
     fn test_onnx_embed() {
         let model_dir = Path::new("models/multilingual-e5-small");
-        if !model_dir.join("model.onnx").exists() {
+        if !model_dir.join("model_O4.onnx").exists() {
             eprintln!("Skipping: model files not downloaded");
             return;
         }
@@ -386,7 +386,7 @@ mod tests {
     #[ignore]
     fn test_onnx_embed_batch() {
         let model_dir = Path::new("models/multilingual-e5-small");
-        if !model_dir.join("model.onnx").exists() {
+        if !model_dir.join("model_O4.onnx").exists() {
             return;
         }
 

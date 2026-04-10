@@ -86,6 +86,8 @@ async fn main() -> Result<()> {
         if let Err(e) = rustrag::embedder::download::download_model_files(&model_dir) {
             tracing::warn!("Model download failed: {e}");
             tracing::warn!("Will use mock embedder as fallback");
+        } else {
+            rustrag::embedder::download::cleanup_legacy_model(&model_dir);
         }
     } else {
         tracing::info!("Model download skipped (--skip-download)");

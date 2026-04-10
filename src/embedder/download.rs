@@ -15,7 +15,7 @@ const HF_BASE: &str = "https://huggingface.co/intfloat/multilingual-e5-small/res
 
 /// Files required for the embedder, with their relative URL paths.
 const MODEL_FILES: &[(&str, &str)] = &[
-    ("model.onnx", "onnx/model.onnx"),
+    ("model_O4.onnx", "onnx/model_O4.onnx"),
     ("tokenizer.json", "tokenizer.json"),
     ("config.json", "config.json"),
     ("special_tokens_map.json", "special_tokens_map.json"),
@@ -54,7 +54,7 @@ pub fn download_model_files(model_dir: &Path) -> Result<()> {
     }
 
     eprintln!("[INFO] Downloading model files from HuggingFace...");
-    eprintln!("[INFO] This is a one-time download (~450MB), please wait...");
+    eprintln!("[INFO] This is a one-time download (~235MB), please wait...");
 
     for &(filename, url_path) in MODEL_FILES {
         let dest = model_dir.join(filename);
@@ -109,6 +109,17 @@ fn download_file(dest: &Path, url: &str) -> Result<()> {
     pb.finish_and_clear();
 
     Ok(())
+}
+
+/// Remove legacy `model.onnx` if `model_O4.onnx` exists (one-time migration).
+pub fn cleanup_legacy_model(model_dir: &Path) {
+    let legacy = model_dir.join("model.onnx");
+    let new_model = model_dir.join("model_O4.onnx");
+    if legacy.exists() && new_model.exists() {
+        if let Ok(()) = fs::remove_file(&legacy) {
+            info!("Removed legacy model.onnx (replaced by model_O4.onnx)");
+        }
+    }
 }
 
 #[cfg(test)]
