@@ -1,9 +1,9 @@
+use anyhow::{Context, Result};
 use rustrag::db::Db;
 use rustrag::embedder::Embedder;
 use rustrag::embedder::download::default_model_dir;
 use rustrag::embedder::onnx::OnnxEmbedder;
 use std::path::Path;
-use anyhow::{Context, Result};
 
 fn main() -> Result<()> {
     let db_path = "./vectors.db";
@@ -27,8 +27,7 @@ fn main() -> Result<()> {
     };
 
     // Use proper error handling instead of expect()
-    let db = Db::open(&db_path)
-        .with_context(|| format!("Failed to open database: {}", db_path))?;
+    let db = Db::open(&db_path).with_context(|| format!("Failed to open database: {}", db_path))?;
     let embedder = OnnxEmbedder::new(Path::new(&model_path), 32, 384, "auto", true)
         .with_context(|| "Failed to load ONNX model")?;
 
@@ -40,9 +39,11 @@ fn main() -> Result<()> {
     for query in queries {
         println!("==============================================");
         println!("Query: {}", query);
-        let emb = embedder.embed(query)
+        let emb = embedder
+            .embed(query)
             .with_context(|| format!("Failed to embed query: {}", query))?;
-        let results = db.search(&emb, 3)
+        let results = db
+            .search(&emb, 3)
             .with_context(|| "Failed to search database")?;
 
         for (i, r) in results.iter().enumerate() {

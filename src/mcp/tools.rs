@@ -335,7 +335,10 @@ impl AppTools {
                     path_str
                 }
                 Err(e) => {
-                    return error_result(&format!("Failed to resolve directory path {}: {}", dir, e));
+                    return error_result(&format!(
+                        "Failed to resolve directory path {}: {}",
+                        dir, e
+                    ));
                 }
             };
 
