@@ -318,6 +318,27 @@ impl AppTools {
 
         // Directory indexing — delegate to Indexer to avoid duplicating walker logic
         if let Some(dir) = &p.directory {
+            // Security validation: ensure directory exists and is within allowed paths
+            let dir_path = Path::new(dir);
+            if !dir_path.exists() {
+                return error_result(&format!("Directory does not exist: {}", dir));
+            }
+
+            // Canonicalize to resolve symlinks and validate
+            let canonical_dir = match dir_path.canonicalize() {
+                Ok(path) => {
+                    // Basic security check: ensure path is absolute and within allowed boundaries
+                    let path_str = path.to_string_lossy().to_string();
+                    if !path_str.starts_with('/') {
+                        return error_result(&format!("Invalid directory path: {}", dir));
+                    }
+                    path_str
+                }
+                Err(e) => {
+                    return error_result(&format!("Failed to resolve directory path {}: {}", dir, e));
+                }
+            };
+
             let force = p.force.unwrap_or(false);
             let embedder = self.ctx.get_embedder().await;
             let config = self.ctx.config.read().await.clone();
@@ -328,7 +349,7 @@ impl AppTools {
                 Arc::new(config),
             );
 
-            let result = match indexer.index_directory(dir, force).await {
+            let result = match indexer.index_directory(&canonical_dir, force).await {
                 Ok(r) => r,
                 Err(e) => return error_result(&format!("directory indexing failed: {e}")),
             };

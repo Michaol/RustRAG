@@ -203,7 +203,7 @@ impl Config {
         let data = std::fs::read_to_string(path)
             .with_context(|| format!("failed to read config: {path}"))?;
 
-        // Parse with defaults
+        // Parse with defaults - use context for better error messages
         let mut cfg: Config = match serde_json::from_str(&data) {
             Ok(c) => c,
             Err(e) => {
