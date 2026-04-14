@@ -23,10 +23,10 @@ v2.1.0 introduces advanced features and improvements to enhance performance, rel
 ---
 
 <details>
-<summary><b>Expand to view History (v2.0.0)</b></summary>
+<summary><b>Expand to view History (v2.0.0 and prior)</b></summary>
 <br>
 
-## v2.0.0 Migration from ONNX Model
+### v2.0.0 Migration from ONNX Model
 
 v2.0.0 migrates the embedding model from `model.onnx` (470MB) to the official `model_O4.onnx` (235MB) provided by HuggingFace, halving both file size and runtime memory:
 
@@ -34,24 +34,18 @@ v2.0.0 migrates the embedding model from `model.onnx` (470MB) to the official `m
 - **Model Size Halved**: Download size reduced from ~470MB to ~235MB, runtime memory from ~500MB to ~250MB.
 - **Automatic Migration Cleanup**: Users with existing `model.onnx` files will have the old model automatically detected and removed on startup.
 
----
+### v1.3.7 Config Hot-Reload
 
-<details>
-<summary><b>Expand to view History (v1.3.7 and prior)</b></summary>
-<br>
-
-### v1.3.6 Config Hot-Reload
-
-v1.3.6 introduced a native hot-reloading mechanism for configurations and model instances via `RwLock`:
+v1.3.7 introduced a native hot-reloading mechanism for configurations and model instances via `RwLock`:
 
 - **GPU Inference Engine Hot-Reloading**: The core model execution environment is now decoupled using read-write locks (`RwLock`). Modifying hardware strategies (`device`) or parameters in `config.json` will automatically release the previous ONNX inference graph and reinitialize it with the new settings on the next request, requiring no service restart.
 - **Dynamic Config & Watcher Sync**: The system now monitors `config.json` for changes. Any modification immediately reloads the configuration and adjusts the background file-watching processes in real-time according to updated inclusion/exclusion filtering rules.
 
-### v1.3.5 Hardware Acceleration Update
+### v1.3.6 Hardware Acceleration Update
 
 - **Multi-Platform GPU Acceleration**: Supports native CUDA, TensorRT, DirectML, and CoreML dynamic library loading across platforms, featuring an intelligent fallback to CPU.
 - **Configuration & Fault Tolerance**: `config.json` supports custom Embedder `batch_size` and toggling `compute.fallback_to_cpu` mode to prevent hardware initialization failures from causing panics.
-- **Real-Time File Watching**: Integrated native background filesystem events. Modifications to tracked tracked directories trigger incremental background synchronization.
+- **Real-Time File Watching**: Integrated native background filesystem events. Modifications to tracked directories trigger incremental background synchronization.
 - **SQLite WAL Mode**: The SQLite vector storage enables Write-Ahead Logging by default, preventing `database is locked` contention during concurrent operations.
 - **Granular MCP Error Reporting**: Revamped error handling to propagate localized exceptions directly to the client logs.
 
@@ -83,12 +77,12 @@ v1.3.6 introduced a native hot-reloading mechanism for configurations and model 
 
 Download the latest release package for your platform from [Releases](https://github.com/Michaol/RustRAG/releases):
 
-| Platform            | Package Example                      |
+| Platform | Package Example |
 | ------------------- | ------------------------------------ |
-| Windows x64         | `rustrag-windows-x64.exe.zip`        |
+| Windows x64 | `rustrag-windows-x64.exe.zip` |
 | macOS Apple Silicon | `rustrag-macos-apple-silicon.tar.gz` |
-| Linux x64           | `rustrag-linux-x64.tar.gz`           |
-| Linux ARM64         | `rustrag-linux-arm64.tar.gz`         |
+| Linux x64 | `rustrag-linux-x64.tar.gz` |
+| Linux ARM64 | `rustrag-linux-arm64.tar.gz` |
 
 **Installation Steps:**
 
@@ -188,9 +182,9 @@ If your massive codebases, dev environments, and model weights reside on a remot
 MCP clients (like Cursor or Claude Desktop) run the processes silently in the background and **cannot prompt you for a password**. Therefore, non-interactive login must be configured:
 
 - 🔑 **Option 1: SSH Keys (Highly Recommended, Native Cross-Platform)**
-  Generate a key pair on your local machine (`ssh-keygen -t ed25519`) and push it to the remote (`ssh-copy-id user@ip`) for secure, passwordless mounting. Works natively on Windows, macOS, and Linux.
+Generate a key pair on your local machine (`ssh-keygen -t ed25519`) and push it to the remote (`ssh-copy-id user@ip`) for secure, passwordless mounting. Works natively on Windows, macOS, and Linux.
 - 🔓 **Option 2: `sshpass` (Password-based, Linux/macOS Only)**
-  If you must use a password, replace the `command` with `sshpass` (e.g., `args: ["-p", "YOUR_PASSWORD", "ssh", "user@ip", ...]`). **Note**: `sshpass` is easily available on Linux and macOS (via `brew install sshpass`), but extremely difficult to install natively on Windows. Windows users should strictly stick to Option 1.
+If you must use a password, replace the `command` with `sshpass` (e.g., `args: ["-p", "YOUR_PASSWORD", "ssh", "user@ip", ...]`). **Note**: `sshpass` is easily available on Linux and macOS (via `brew install sshpass`), but extremely difficult to install natively on Windows. Windows users should strictly stick to Option 1.
 
 **Configuration Example (Native SSH setup):**
 
@@ -200,8 +194,8 @@ MCP clients (like Cursor or Claude Desktop) run the processes silently in the ba
     "rustrag-remote": {
       "command": "ssh",
       "args": [
-        "user@remote.server.ip",    // Replace with your remote host
-        "/absolute/path/to/rustrag",  // Remote path to rustrag binary
+        "user@remote.server.ip", // Replace with your remote host
+        "/absolute/path/to/rustrag", // Remote path to rustrag binary
         "--config",
         "/remote/project/config.json" // Remote path to config
       ]
@@ -216,90 +210,90 @@ This setup grants your local AI assistant instantaneous insight into millions of
 To keep the repository footprint minimal and ensure out-of-the-box compatibility for all users on any platform (specifically Apple Silicon Macs or laptops without discrete GPUs), RustRAG defaults to a lightweight **CPU-only Mode** (`fallback_to_cpu: true`). However, if you possess a dedicated NVIDIA GPU (e.g. RTX 30/40 series) and desire microsecond-level vector search throughput, you can effortlessly unlock TensorRT/CUDA acceleration:
 
 1. **Download Official GPU Runtimes**
-   Navigate to the [ONNX Runtime v1.23.2 Release Page](https://github.com/microsoft/onnxruntime/releases/tag/v1.23.2) and download the appropriate OS GPU package (approx 300+MB):
-   - **Windows:** Download `onnxruntime-win-x64-gpu-1.23.2.zip`
-   - **Linux:** Download `onnxruntime-linux-x64-gpu-1.23.2.tgz`
-   - **macOS:** Apple Silicon Macs run natively fast on CPU with CoreML support. Do not download the Nvidia packages.
+Navigate to the [ONNX Runtime v1.23.2 Release Page](https://github.com/microsoft/onnxruntime/releases/tag/v1.23.2) and download the appropriate OS GPU package (approx 300+MB):
+- **Windows:** Download `onnxruntime-win-x64-gpu-1.23.2.zip`
+- **Linux:** Download `onnxruntime-linux-x64-gpu-1.23.2.tgz`
+- **macOS:** Apple Silicon Macs run natively fast on CPU with CoreML support. Do not download the Nvidia packages.
 
 2. **Setup the Dynamic Libraries**
-   Extract the archive and drop all the `.dll` (for Windows) or `.so` (for Linux) files (e.g., `onnxruntime.dll`, `libonnxruntime_providers_cuda.so`) precisely **into the same directory of your `rustrag` backend executable binary**.
+Extract the archive and drop all the `.dll` (for Windows) or `.so` (for Linux) files (e.g., `onnxruntime.dll`, `libonnxruntime_providers_cuda.so`) precisely **into the same directory of your `rustrag` backend executable binary**.
 
 3. **Enable Auto-Detection**
-   Open your project configuration (`config.json`) and ensure:
-   
-   ```json
-   "compute": {
-     "device": "auto",       // <-- Will auto-seek TensorRT, then CUDA, DML/CoreML, etc.
-     "fallback_to_cpu": true // <-- Safety net to quietly fallback to CPU if GPU dlls are missing
-   }
-   ```
+Open your project configuration (`config.json`) and ensure:
+
+```json
+"compute": {
+  "device": "auto", // <-- Will auto-seek TensorRT, then CUDA, DML/CoreML, etc.
+  "fallback_to_cpu": true // <-- Safety net to quietly fallback to CPU if GPU dlls are missing
+}
+```
 If the requirements are met, upon startup the MCP log will confidently announce `🚀 ONNX Execution Provider Activated: [TensorRT]` or `[CUDA]`. **This configuration is entirely isolated to your execution folder; it will never pollute the core project repository!**
 
 ## CLI Options
 
-| Flag              | Default       | Description                             |
+| Flag | Default | Description |
 | ----------------- | ------------- | --------------------------------------- |
-| `--config`, `-c`  | `config.json` | Path to configuration file              |
-| `--log-level`     | `info`        | Log level (trace/debug/info/warn/error) |
-| `--skip-download` | false         | Skip automatic model download           |
-| `--skip-sync`     | false         | Skip initial document sync              |
-| `--version`       | —             | Display version and exit                |
+| `--config`, `-c` | `config.json` | Path to configuration file |
+| `--log-level` | `info` | Log level (trace/debug/info/warn/error) |
+| `--skip-download` | false | Skip automatic model download |
+| `--skip-sync` | false | Skip initial document sync |
+| `--version` | — | Display version and exit |
 
 ## MCP Tools
 
-| Tool                 | Description                                                             |
+| Tool | Description |
 | -------------------- | ----------------------------------------------------------------------- |
-| `search`             | Natural language vector search with optional directory/filename filters |
-| `index`              | Index markdown or code files using logical AST chunking & abstraction   |
-| `manage_document`    | Remove a document from the index or force re-index an existing one      |
-| `list_documents`     | List all indexed documents                                              |
-| `frontmatter`        | Add or update YAML frontmatter metadata to a markdown file              |
-| `search_relations`   | Search code relationships (calls, imports, inherits)                    |
-| `build_dictionary`   | Extract CJK↔English term mappings from code                             |
+| `search` | Natural language vector search with optional directory/filename filters |
+| `index` | Index markdown or code files using logical AST chunking & abstraction |
+| `manage_document` | Remove a document from the index or force re-index an existing one |
+| `list_documents` | List all indexed documents |
+| `frontmatter` | Add or update YAML frontmatter metadata to a markdown file |
+| `search_relations` | Search code relationships (calls, imports, inherits) |
+| `build_dictionary` | Extract CJK↔English term mappings from code |
 
 ## Architecture
 
 ```
 src/
-├── lib.rs            # Module exports
-├── main.rs           # CLI + startup sequence
-├── config.rs         # Configuration loading/validation
-├── frontmatter.rs    # YAML frontmatter operations
-├── updater.rs        # Version update checker (GitHub API)
-├── db/               # SQLite + sqlite-vec vector database
-│   ├── mod.rs        # Schema + connection management
-│   ├── models.rs     # Data models
-│   ├── documents.rs  # Document CRUD operations
-│   ├── search.rs     # Vector similarity search
-│   └── relations.rs  # Code relationship queries
-├── embedder/         # Text embedding engine
-│   ├── mod.rs        # Embedder trait
-│   ├── onnx.rs       # ONNX Runtime inference
-│   ├── mock.rs       # Mock embedder (testing)
-│   ├── tokenizer.rs  # BERT tokenizer wrapper
-│   └── download.rs   # Model auto-download
-├── indexer/          # Document & code indexing
-│   ├── core.rs       # Differential sync engine
-│   ├── markdown.rs   # Markdown chunking
+├── lib.rs # Module exports
+├── main.rs # CLI + startup sequence
+├── config.rs # Configuration loading/validation
+├── frontmatter.rs # YAML frontmatter operations
+├── updater.rs # Version update checker (GitHub API)
+├── db/ # SQLite + sqlite-vec vector database
+│   ├── mod.rs # Schema + connection management
+│   ├── models.rs # Data models
+│   ├── documents.rs # Document CRUD operations
+│   ├── search.rs # Vector similarity search
+│   └── relations.rs # Code relationship queries
+├── embedder/ # Text embedding engine
+│   ├── mod.rs # Embedder trait
+│   ├── onnx.rs # ONNX Runtime inference
+│   ├── mock.rs # Mock embedder (testing)
+│   ├── tokenizer.rs # BERT tokenizer wrapper
+│   └── download.rs # Model auto-download
+├── indexer/ # Document & code indexing
+│   ├── core.rs # Differential sync engine
+│   ├── markdown.rs # Markdown chunking
 │   ├── code_parser.rs # Tree-sitter code parsing
-│   ├── relations.rs  # Code relationship extraction
+│   ├── relations.rs # Code relationship extraction
 │   ├── dictionary.rs # Multilingual dictionary
-│   └── languages.rs  # Language-specific TS queries
-└── mcp/              # MCP protocol layer
-    ├── server.rs     # Server setup (stdio transport)
-    └── tools.rs      # 7 tool handler implementations
+│   └── languages.rs # Language-specific TS queries
+└── mcp/ # MCP protocol layer
+    ├── server.rs # Server setup (stdio transport)
+    └── tools.rs # 7 tool handler implementations
 ```
 
 ## Supported Languages
 
-| Language   | Extension | Parser                 |
+| Language | Extension | Parser |
 | ---------- | --------- | ---------------------- |
-| Rust       | `.rs`     | tree-sitter-rust       |
-| Go         | `.go`     | tree-sitter-go         |
-| Python     | `.py`     | tree-sitter-python     |
-| TypeScript | `.ts`     | tree-sitter-typescript |
-| JavaScript | `.js`     | tree-sitter-javascript |
-| Markdown   | `.md`     | pulldown-cmark         |
+| Rust | `.rs` | tree-sitter-rust |
+| Go | `.go` | tree-sitter-go |
+| Python | `.py` | tree-sitter-python |
+| TypeScript | `.ts` | tree-sitter-typescript |
+| JavaScript | `.js` | tree-sitter-javascript |
+| Markdown | `.md` | pulldown-cmark |
 
 ## Building from Source
 
@@ -316,10 +310,8 @@ The binary will be at `target/release/rustrag` (or `rustrag.exe` on Windows).
 ```bash
 # Run all tests
 cargo test --all
-
 # Run integration tests only
 cargo test --test integration_test
-
 # Lint
 cargo clippy -- -D warnings
 ```
