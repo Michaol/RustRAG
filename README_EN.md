@@ -12,7 +12,21 @@ A high-performance local RAG (Retrieval-Augmented Generation) MCP Server written
 
 ---
 
-## Latest Release (v2.0.0)
+## Latest Release (v2.1.0)
+
+v2.1.0 introduces advanced features and improvements to enhance performance, reliability, and developer experience:
+
+- **New Features**: Enhanced functionality and improved user experience.
+- **Performance Optimizations**: Faster processing and reduced resource usage.
+- **Stability Improvements**: Enhanced reliability and bug fixes.
+
+---
+
+<details>
+<summary><b>Expand to view History (v2.0.0)</b></summary>
+<br>
+
+## v2.0.0 Migration from ONNX Model
 
 v2.0.0 migrates the embedding model from `model.onnx` (470MB) to the official `model_O4.onnx` (235MB) provided by HuggingFace, halving both file size and runtime memory:
 
