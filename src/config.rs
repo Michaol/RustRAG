@@ -185,23 +185,20 @@ impl Config {
             config_path
         };
 
-        // Check if config file exists
-        if !Path::new(path).exists() {
-            info!("{path} not found, using defaults");
-            let cfg = Self::default();
-
-            // Generate template for any path that doesn't exist to ensure a workable state
-            match cfg.save(path) {
-                Ok(()) => info!("Generated config template: {path}"),
-                Err(e) => warn!("Failed to generate config template: {e}"),
+        // Read existing config, fall back to default template if not found
+        let data = match std::fs::read_to_string(path) {
+            Ok(content) => content,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                info!("{path} not found, using defaults");
+                let cfg = Self::default();
+                match cfg.save(path) {
+                    Ok(()) => info!("Generated config template: {path}"),
+                    Err(save_e) => warn!("Failed to generate config template: {save_e}"),
+                }
+                return Ok(cfg);
             }
-
-            return Ok(cfg);
-        }
-
-        // Read existing config
-        let data = std::fs::read_to_string(path)
-            .with_context(|| format!("failed to read config: {path}"))?;
+            Err(e) => return Err(e).context(format!("failed to read config: {path}")),
+        };
 
         // Parse with defaults - use context for better error messages
         let mut cfg: Config = match serde_json::from_str(&data) {

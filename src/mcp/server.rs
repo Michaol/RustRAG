@@ -8,11 +8,11 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use crate::{config::Config, db::Db, embedder::Embedder};
-use tokio::sync::{Mutex as TokioMutex, RwLock as TokioRwLock};
+use tokio::sync::RwLock as TokioRwLock;
 /// Shared application context available to all tool handlers.
 #[derive(Clone)]
 pub struct McpContext {
-    pub db: Arc<TokioMutex<Db>>,
+    pub db: Arc<Db>,
     pub config: Arc<TokioRwLock<Config>>,
     /// Lazy-initialized embedder, hot-swappable
     embedder: Arc<TokioRwLock<Option<Arc<dyn Embedder>>>>,
@@ -24,7 +24,7 @@ pub struct McpContext {
 
 impl McpContext {
     pub fn new(
-        db: Arc<TokioMutex<Db>>,
+        db: Arc<Db>,
         config: Arc<Config>,
         model_dir: PathBuf,
         chunk_size: usize,

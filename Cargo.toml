@@ -1,6 +1,6 @@
 [package]
 name = "rustrag"
-version = "2.1.0"
+version = "2.2.0"
 edition = "2024"
 rust-version = "1.85"
 description = "High-performance local RAG MCP Server — indexes documents and code, serves context to AI assistants"
@@ -23,6 +23,9 @@ sqlite-vec = "0.1.7-alpha.10"
 
 # Tokenizer
 tokenizers = "0.22"
+
+# 连接池
+r2d2 = "0.8.10"
 
 # AST 解析
 tree-sitter = "0.26"

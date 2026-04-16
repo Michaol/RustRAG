@@ -161,7 +161,7 @@ async fn process_file_change(path: &Path, ctx: &McpContext) {
     if !path.exists() {
         // File was removed
         info!("File removed, deleting from index: {}", db_path);
-        let db = ctx.db.lock().await;
+        let db = ctx.db.clone();
         let _ = db.delete_document(&db_path);
         return;
     }

@@ -86,6 +86,7 @@ impl Db {
         top_k: usize,
         filter: Option<&SearchFilter<'_>>,
     ) -> Result<Vec<SearchResult>> {
+        let conn = self.get_conn()?;
         let mut query = String::from(
             r#"
             SELECT
@@ -142,7 +143,7 @@ impl Db {
         let param_refs: Vec<&dyn rusqlite::ToSql> =
             params.iter().map(|p| p as &dyn rusqlite::ToSql).collect();
 
-        let mut stmt = self.conn.prepare_cached(&query)?;
+        let mut stmt = conn.prepare_cached(&query)?;
         let rows = stmt.query_map(param_refs.as_slice(), map_search_row)?;
 
         let mut results = Vec::new();
@@ -159,6 +160,7 @@ impl Db {
         keywords: &[&str],
         limit: usize,
     ) -> Result<Vec<SearchResult>> {
+        let conn = self.get_conn()?;
         if keywords.is_empty() {
             return Ok(Vec::new());
         }
@@ -199,7 +201,7 @@ impl Db {
         let param_refs: Vec<&dyn rusqlite::ToSql> =
             params.iter().map(|p| p as &dyn rusqlite::ToSql).collect();
 
-        let mut stmt = self.conn.prepare_cached(&query)?;
+        let mut stmt = conn.prepare_cached(&query)?;
         let rows = stmt.query_map(param_refs.as_slice(), map_search_row)?;
 
         let mut results = Vec::new();
@@ -219,7 +221,7 @@ mod tests {
 
     #[test]
     fn test_search() {
-        let mut db = Db::open_in_memory().unwrap();
+        let db = Db::open_in_memory().unwrap();
 
         // Let's insert some mock documents
         let chunks = vec![Chunk {
@@ -288,7 +290,7 @@ mod tests {
 
     #[test]
     fn test_search_with_filter() {
-        let mut db = Db::open_in_memory().unwrap();
+        let db = Db::open_in_memory().unwrap();
 
         let padded_embedding = vec![0.1f32; 384];
 

@@ -7,7 +7,6 @@ use ignore::WalkBuilder;
 use ignore::overrides::OverrideBuilder;
 use std::path::Path;
 use std::sync::Arc;
-use tokio::sync::Mutex as TokioMutex;
 
 /// Normalizes a path to absolute format, stripping Windows UNC prefixes.
 pub fn normalize_system_path(path: &Path) -> String {
@@ -32,19 +31,14 @@ pub struct CodeSyncResult {
 }
 
 pub struct Indexer<'a, E: Embedder + ?Sized> {
-    pub db: Arc<TokioMutex<Db>>,
+    pub db: Arc<Db>,
     pub embedder: &'a E,
     pub chunk_size: usize,
     pub config: Arc<Config>,
 }
 
 impl<'a, E: Embedder + ?Sized> Indexer<'a, E> {
-    pub fn new(
-        db: Arc<TokioMutex<Db>>,
-        embedder: &'a E,
-        chunk_size: usize,
-        config: Arc<Config>,
-    ) -> Self {
+    pub fn new(db: Arc<Db>, embedder: &'a E, chunk_size: usize, config: Arc<Config>) -> Self {
         Self {
             db,
             embedder,
@@ -75,7 +69,7 @@ impl<'a, E: Embedder + ?Sized> Indexer<'a, E> {
         let meta_key = format!("dir_hash:{}", dir_str);
 
         {
-            let db_guard = self.db.lock().await;
+            let db_guard = self.db.clone();
             let stored = db_guard.get_metadata(&meta_key).unwrap_or(None);
             let should_rebuild = stored.as_deref() != Some(config_hash.as_str());
 
@@ -95,7 +89,7 @@ impl<'a, E: Embedder + ?Sized> Indexer<'a, E> {
 
         // Get existing documents from DB map(filename -> modified_at)
         let existing_docs = {
-            let db_guard = self.db.lock().await;
+            let db_guard = self.db.clone();
             db_guard.list_documents()?
         };
 
@@ -183,7 +177,7 @@ impl<'a, E: Embedder + ?Sized> Indexer<'a, E> {
             .collect();
 
         if !stale_paths.is_empty() {
-            let db_guard = self.db.lock().await;
+            let db_guard = self.db.clone();
             if let Ok(removed) = db_guard.delete_documents_batch(&stale_paths) {
                 result.removed += removed;
             }
@@ -249,7 +243,7 @@ impl<'a, E: Embedder + ?Sized> Indexer<'a, E> {
 
         // Write to DB
         {
-            let mut db_guard = self.db.lock().await;
+            let db_guard = self.db.clone();
             db_guard.insert_document(db_path, mod_time, &db_chunks, &vectors)?;
         }
 
@@ -303,7 +297,7 @@ impl<'a, E: Embedder + ?Sized> Indexer<'a, E> {
 
         // Write to DB with code metadata
         {
-            let mut db_guard = self.db.lock().await;
+            let db_guard = self.db.clone();
             db_guard.insert_code_document(db_path, mod_time, &db_chunks, &vectors)?;
         }
 
@@ -332,7 +326,7 @@ mod tests {
         fs::write(&file2, "Content 2").unwrap();
 
         let db = Db::open_in_memory().unwrap();
-        let db_arc = Arc::new(TokioMutex::new(db));
+        let db_arc = Arc::new(db);
         let embedder = MockEmbedder::default();
         let mut indexer = Indexer::new(
             db_arc.clone(),
@@ -362,10 +356,7 @@ mod tests {
         assert_eq!(res3.skipped, 0);
 
         // Check DB
-        let docs = {
-            let db_lock = db_arc.lock().await;
-            db_lock.list_documents().unwrap()
-        };
+        let docs = db_arc.list_documents().unwrap();
         assert_eq!(docs.len(), 2);
     }
 }

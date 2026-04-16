@@ -101,43 +101,86 @@ fn init_sqlite_vec() {
     });
 }
 
-/// A wrapper around a SQLite connection initialized with sqlite-vec and the application schema.
-pub struct Db {
-    pub(crate) conn: Connection,
+use r2d2::{ManageConnection, Pool};
+
+#[derive(Clone)]
+pub struct SqliteManager {
+    path: Option<std::path::PathBuf>,
 }
 
-impl Db {
-    /// Open a database connection at the given path and initialize the schema.
-    pub fn open<P: AsRef<Path>>(path: P) -> Result<Self> {
-        let path = path.as_ref();
-        info!("Initializing database: {}", path.display());
+impl ManageConnection for SqliteManager {
+    type Connection = Connection;
+    type Error = rusqlite::Error;
 
-        // Register sqlite-vec extension globally
+    fn connect(&self) -> std::result::Result<Self::Connection, Self::Error> {
+        let conn = if let Some(p) = &self.path {
+            Connection::open(p)?
+        } else {
+            Connection::open_in_memory()?
+        };
         init_sqlite_vec();
-
-        let conn = Connection::open(path)?;
-
-        // Verify sqlite-vec is loaded
-        let vec_version: String = conn.query_row("SELECT vec_version()", [], |row| row.get(0))?;
-        info!("sqlite-vec version: {}", vec_version);
-
-        // Configure connection
         conn.execute_batch(
             "PRAGMA foreign_keys = ON;
              PRAGMA journal_mode = WAL;
              PRAGMA synchronous = NORMAL;",
         )?;
+        // Verification
+        let vec_version: String = conn.query_row("SELECT vec_version()", [], |row| row.get(0))?;
+        info!("sqlite-vec version: {}", vec_version);
+        Ok(conn)
+    }
 
-        // Initialize schema
+    fn is_valid(&self, conn: &mut Self::Connection) -> std::result::Result<(), Self::Error> {
+        conn.execute_batch("SELECT 1")
+    }
+
+    fn has_broken(&self, _: &mut Self::Connection) -> bool {
+        false
+    }
+}
+
+/// A wrapper around a SQLite connection pool initialized with sqlite-vec and the application schema.
+#[derive(Clone)]
+pub struct Db {
+    pub pool: Pool<SqliteManager>,
+}
+
+impl Db {
+    pub fn get_conn(&self) -> Result<r2d2::PooledConnection<SqliteManager>> {
+        self.pool.get().map_err(|e| {
+            rusqlite::Error::SqliteFailure(rusqlite::ffi::Error::new(1), Some(e.to_string()))
+        })
+    }
+
+    /// Open a database connection pool at the given path and initialize the schema.
+    pub fn open<P: AsRef<Path>>(path: P) -> Result<Self> {
+        let path = path.as_ref();
+        info!("Initializing database: {}", path.display());
+
+        let manager = SqliteManager {
+            path: Some(path.to_path_buf()),
+        };
+        let pool = r2d2::Pool::builder()
+            .max_size(15) // sufficient for concurrent read/write and search
+            .build(manager)
+            .map_err(|e| {
+                rusqlite::Error::SqliteFailure(rusqlite::ffi::Error::new(1), Some(e.to_string()))
+            })?;
+
+        // Initialize schema using the first connection
+        let conn = pool.get().map_err(|e| {
+            rusqlite::Error::SqliteFailure(rusqlite::ffi::Error::new(1), Some(e.to_string()))
+        })?;
         conn.execute_batch(SCHEMA_SQL)?;
 
         info!("Database initialized successfully");
 
-        Ok(Self { conn })
+        Ok(Self { pool })
     }
 
     pub fn get_metadata(&self, key: &str) -> Result<Option<String>> {
-        let res = self.conn.query_row(
+        let conn = self.get_conn()?;
+        let res = conn.query_row(
             "SELECT value FROM system_metadata WHERE key = ?",
             [key],
             |row| row.get(0),
@@ -150,7 +193,8 @@ impl Db {
     }
 
     pub fn set_metadata(&self, key: &str, value: &str) -> Result<()> {
-        self.conn.execute(
+        let conn = self.get_conn()?;
+        conn.execute(
             "INSERT INTO system_metadata (key, value) VALUES (?1, ?2) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP",
             [key, value],
         )?;
@@ -158,17 +202,19 @@ impl Db {
     }
 
     pub fn open_in_memory() -> Result<Self> {
-        init_sqlite_vec();
-        let conn = Connection::open_in_memory()?;
-        let vec_version: String = conn.query_row("SELECT vec_version()", [], |row| row.get(0))?;
-        info!("sqlite-vec version: {}", vec_version);
-        conn.execute_batch(
-            "PRAGMA foreign_keys = ON;
-             PRAGMA journal_mode = WAL;
-             PRAGMA synchronous = NORMAL;",
-        )?;
+        let manager = SqliteManager { path: None };
+        let pool = r2d2::Pool::builder()
+            .max_size(1) // Single connection so all queries hit the initialized schema
+            .build(manager)
+            .map_err(|e| {
+                rusqlite::Error::SqliteFailure(rusqlite::ffi::Error::new(1), Some(e.to_string()))
+            })?;
+
+        let conn = pool.get().map_err(|e| {
+            rusqlite::Error::SqliteFailure(rusqlite::ffi::Error::new(1), Some(e.to_string()))
+        })?;
         conn.execute_batch(SCHEMA_SQL)?;
-        Ok(Self { conn })
+        Ok(Self { pool })
     }
 }
 
@@ -193,7 +239,8 @@ mod tests {
         let db = Db::open_in_memory().expect("Failed to open in-memory DB");
 
         // Verify tables exist
-        let tables: usize = db.conn.query_row(
+        let conn = db.get_conn().unwrap();
+        let tables: usize = conn.query_row(
             "SELECT count(*) FROM sqlite_master WHERE type='table' AND name IN ('documents', 'chunks', 'vec_chunks', 'code_metadata', 'code_relations', 'word_mapping');",
             [],
             |row| row.get(0),
