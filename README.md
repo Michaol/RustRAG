@@ -27,6 +27,14 @@ v2.2.0 introduces a major architecture refactor focusing on high concurrency and
 <summary><b>Expand to view History (v2.0.0 and prior)</b></summary>
 <br>
 
+### v2.1.0 Advanced Improvements
+
+v2.1.0 introduced advanced features and improvements to enhance performance, reliability, and developer experience:
+
+- **New Features**: Enhanced functionality and improved user experience.
+- **Performance Optimizations**: Faster processing and reduced resource usage.
+- **Stability Improvements**: Enhanced reliability and bug fixes.
+
 ### v2.0.0 Migration from ONNX Model
 
 v2.0.0 migrates the embedding model from `model.onnx` (470MB) to the official `model_O4.onnx` (235MB) provided by HuggingFace, halving both file size and runtime memory:
