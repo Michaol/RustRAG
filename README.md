@@ -14,11 +14,12 @@ A high-performance local RAG (Retrieval-Augmented Generation) MCP Server written
 
 ## Latest Release (v2.2.0)
 
-v2.1.0 introduces advanced features and improvements to enhance performance, reliability, and developer experience:
+v2.2.0 introduces a major architecture refactor focusing on high concurrency and asynchronous reliability:
 
-- **New Features**: Enhanced functionality and improved user experience.
-- **Performance Optimizations**: Faster processing and reduced resource usage.
-- **Stability Improvements**: Enhanced reliability and bug fixes.
+- **Database Connection Pooling**: Integrated `r2d2` with `sqlite-vec` to enable safe, multi-threaded database access.
+- **Async Networking**: Migrated the update checker from `reqwest::blocking` to native async `reqwest` to eliminate Tokio thread starvation.
+- **Config Safety**: Resolved TOCTOU (Time-of-check to time-of-use) race conditions in configuration loading for improved reliability.
+- **Performance**: Optimized lazy initialization of the ONNX embedder and improved internal error bubbling.
 
 ---
 
