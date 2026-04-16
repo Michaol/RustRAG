@@ -33,7 +33,8 @@ fn map_basic_relation(row: &Row<'_>) -> Result<CodeRelation> {
 impl Db {
     /// Retrieves code metadata for a specific chunk
     pub fn get_code_metadata(&self, chunk_id: i64) -> Result<Option<CodeMetadata>> {
-        self.conn
+        let conn = self.get_conn()?;
+        conn
             .query_row(
                 r#"
             SELECT id, chunk_id, symbol_name, symbol_type, language, start_line, end_line, parent_symbol, signature
@@ -58,12 +59,13 @@ impl Db {
     }
 
     /// Inserts code relations into the database
-    pub fn insert_relations(&mut self, relations: &[CodeRelation]) -> Result<()> {
+    pub fn insert_relations(&self, relations: &[CodeRelation]) -> Result<()> {
+        let mut conn = self.get_conn()?;
         if relations.is_empty() {
             return Ok(());
         }
 
-        let tx = self.conn.transaction()?;
+        let tx = conn.transaction()?;
 
         for rel in relations {
             tx.execute(
@@ -87,9 +89,9 @@ impl Db {
 
     /// Returns the chunk ID for a symbol in a given file
     pub fn get_chunk_id_by_symbol(&self, filename: &str, symbol_name: &str) -> Result<Option<i64>> {
-        self.conn
-            .query_row(
-                r#"
+        let conn = self.get_conn()?;
+        conn.query_row(
+            r#"
                 SELECT cm.chunk_id
                 FROM code_metadata cm
                 JOIN chunks c ON cm.chunk_id = c.id
@@ -97,10 +99,10 @@ impl Db {
                 WHERE d.filename = ? AND cm.symbol_name = ?
                 LIMIT 1
                 "#,
-                params![filename, symbol_name],
-                |row| row.get(0),
-            )
-            .optional()
+            params![filename, symbol_name],
+            |row| row.get(0),
+        )
+        .optional()
     }
 
     fn query_basic_relations(
@@ -109,6 +111,7 @@ impl Db {
         chunk_id: i64,
         rel_type: Option<&str>,
     ) -> Result<Vec<CodeRelation>> {
+        let conn = self.get_conn()?;
         let mut query = base_query.to_string();
         let mut params: Vec<Value> = vec![Value::Integer(chunk_id)];
 
@@ -120,7 +123,7 @@ impl Db {
         let param_refs: Vec<&dyn rusqlite::ToSql> =
             params.iter().map(|p| p as &dyn rusqlite::ToSql).collect();
 
-        let mut stmt = self.conn.prepare_cached(&query)?;
+        let mut stmt = conn.prepare_cached(&query)?;
         let rows = stmt.query_map(param_refs.as_slice(), map_basic_relation)?;
 
         let mut results = Vec::new();
@@ -163,6 +166,7 @@ impl Db {
         direction: &str,
         rel_type: Option<&str>,
     ) -> Result<Vec<CodeRelation>> {
+        let conn = self.get_conn()?;
         let mut query = String::from(
             r#"
             SELECT cr.id, cr.source_chunk_id, cr.target_chunk_id, cr.relation_type, cr.target_name, cr.target_file, cr.confidence,
@@ -201,7 +205,7 @@ impl Db {
         let param_refs: Vec<&dyn rusqlite::ToSql> =
             params.iter().map(|p| p as &dyn rusqlite::ToSql).collect();
 
-        let mut stmt = self.conn.prepare_cached(&query)?;
+        let mut stmt = conn.prepare_cached(&query)?;
         let rows = stmt.query_map(param_refs.as_slice(), map_relation_with_source)?;
 
         let mut results = Vec::new();
@@ -218,6 +222,7 @@ impl Db {
         source_word: &str,
         source_lang: Option<&str>,
     ) -> Result<Vec<String>> {
+        let conn = self.get_conn()?;
         let mut query = "SELECT target_word FROM word_mapping WHERE source_word = ?".to_string();
         let mut params: Vec<Value> = vec![Value::Text(source_word.to_string())];
 
@@ -231,7 +236,7 @@ impl Db {
         let param_refs: Vec<&dyn rusqlite::ToSql> =
             params.iter().map(|p| p as &dyn rusqlite::ToSql).collect();
 
-        let mut stmt = self.conn.prepare(&query)?;
+        let mut stmt = conn.prepare(&query)?;
         let rows = stmt.query_map(param_refs.as_slice(), |row| row.get(0))?;
 
         let mut targets = Vec::new();
@@ -251,7 +256,7 @@ mod tests {
 
     #[test]
     fn test_relations_crud() {
-        let mut db = Db::open_in_memory().unwrap();
+        let db = Db::open_in_memory().unwrap();
 
         let code_chunks = vec![CodeChunk {
             chunk: Chunk {

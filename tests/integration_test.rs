@@ -10,7 +10,6 @@ use rustrag::indexer::core::Indexer;
 use std::fs;
 use std::sync::Arc;
 use tempfile::tempdir;
-use tokio::sync::Mutex as TokioMutex;
 
 /// Full pipeline: create docs → index → list → search → delete
 #[tokio::test]
@@ -37,7 +36,7 @@ async fn test_full_pipeline() {
 
     // 2. Initialize DB (in-memory)
     let db = Db::open_in_memory().unwrap();
-    let db_arc = Arc::new(TokioMutex::new(db));
+    let db_arc = Arc::new(db);
 
     // 3. Initialize MockEmbedder
     let embedder = MockEmbedder::default();
@@ -53,10 +52,7 @@ async fn test_full_pipeline() {
     assert_eq!(result.removed, 0, "Should have 0 removals");
 
     // 5. List documents
-    let docs = {
-        let db_lock = db_arc.lock().await;
-        db_lock.list_documents().unwrap()
-    };
+    let docs = { db_arc.list_documents().unwrap() };
     assert_eq!(docs.len(), 3, "Should have 3 documents in DB");
 
     // Verify document names contain our files (path-normalized)
@@ -76,10 +72,7 @@ async fn test_full_pipeline() {
 
     // 6. Search (with mock embedder, results are based on hash similarity)
     let query_vec = embedder.embed("Rust programming").unwrap();
-    let results = {
-        let db_lock = db_arc.lock().await;
-        db_lock.search_with_filter(&query_vec, 5, None).unwrap()
-    };
+    let results = { db_arc.search_with_filter(&query_vec, 5, None).unwrap() };
     assert!(!results.is_empty(), "Search should return results");
 
     // Verify result structure
@@ -122,10 +115,7 @@ async fn test_full_pipeline() {
         "Should skip the remaining 2 existing files"
     );
 
-    let docs_after_sync = {
-        let db_lock = db_arc.lock().await;
-        db_lock.list_documents().unwrap()
-    };
+    let docs_after_sync = { db_arc.list_documents().unwrap() };
     assert_eq!(
         docs_after_sync.len(),
         2,
@@ -139,14 +129,10 @@ async fn test_full_pipeline() {
     // 10. Manual Delete API verify
     let guide_key = doc_names.iter().find(|n| n.contains("guide.md")).unwrap();
     {
-        let db_lock = db_arc.lock().await;
-        db_lock.delete_document(guide_key).unwrap();
+        db_arc.delete_document(guide_key).unwrap();
     }
 
-    let docs_after = {
-        let db_lock = db_arc.lock().await;
-        db_lock.list_documents().unwrap()
-    };
+    let docs_after = { db_arc.list_documents().unwrap() };
     assert_eq!(
         docs_after.len(),
         1,

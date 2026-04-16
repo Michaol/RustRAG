@@ -54,7 +54,7 @@ pub struct UpdateInfo {
 /// Returns `Some(UpdateInfo)` if a newer version is available
 /// and the user hasn't been notified within the last 24 hours.
 /// Returns `None` otherwise (no update, recently checked, or error).
-pub fn get_update_info(current_version: &str, cache_dir: &str) -> Option<UpdateInfo> {
+pub async fn get_update_info(current_version: &str, cache_dir: &str) -> Option<UpdateInfo> {
     let cache = load_cache(cache_dir).unwrap_or_default();
 
     // Already notified recently?
@@ -66,7 +66,7 @@ pub fn get_update_info(current_version: &str, cache_dir: &str) -> Option<UpdateI
     }
 
     // Fetch latest
-    let release = fetch_latest_release().ok()?;
+    let release = fetch_latest_release().await.ok()?;
     let latest_version = normalize_version(&release.tag_name).ok()?;
 
     if !is_newer_version(&latest_version, current_version).unwrap_or(false) {
@@ -90,7 +90,7 @@ pub fn get_update_info(current_version: &str, cache_dir: &str) -> Option<UpdateI
 
 /// Check for updates at startup. Prints a notice to stderr if a newer
 /// version is available. Errors are silently ignored (best-effort).
-pub fn check_for_update(current_version: &str, cache_dir: &str) {
+pub async fn check_for_update(current_version: &str, cache_dir: &str) {
     let mut cache = load_cache(cache_dir).unwrap_or_default();
     let now = current_unix_secs();
 
@@ -109,7 +109,7 @@ pub fn check_for_update(current_version: &str, cache_dir: &str) {
     }
 
     // Fetch latest release
-    let release = match fetch_latest_release() {
+    let release = match fetch_latest_release().await {
         Ok(r) => r,
         Err(e) => {
             tracing::debug!("Update check failed: {e}");
@@ -138,8 +138,8 @@ pub fn check_for_update(current_version: &str, cache_dir: &str) {
 
 // ── Internal helpers ─────────────────────────────────────────────────
 
-fn fetch_latest_release() -> Result<GitHubRelease> {
-    let client = reqwest::blocking::Client::builder()
+async fn fetch_latest_release() -> Result<GitHubRelease> {
+    let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(5))
         .user_agent("rustrag-update-checker")
         .build()
@@ -149,13 +149,17 @@ fn fetch_latest_release() -> Result<GitHubRelease> {
         .get(GITHUB_API_URL)
         .header("Accept", "application/vnd.github.v3+json")
         .send()
+        .await
         .context("GitHub API request failed")?;
 
     if !resp.status().is_success() {
         bail!("GitHub API returned status {}", resp.status());
     }
 
-    let release: GitHubRelease = resp.json().context("Failed to parse GitHub response")?;
+    let release: GitHubRelease = resp
+        .json()
+        .await
+        .context("Failed to parse GitHub response")?;
 
     if release.tag_name.is_empty() {
         bail!("Empty tag_name in GitHub response");

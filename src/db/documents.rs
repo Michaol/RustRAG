@@ -6,9 +6,8 @@ use std::collections::HashMap;
 impl Db {
     /// Returns a map of filename -> modified_at for all indexed documents
     pub fn list_documents(&self) -> Result<HashMap<String, DateTime<Utc>>> {
-        let mut stmt = self
-            .conn
-            .prepare("SELECT filename, modified_at FROM documents")?;
+        let conn = self.get_conn()?;
+        let mut stmt = conn.prepare("SELECT filename, modified_at FROM documents")?;
         let rows = stmt.query_map([], |row| {
             let filename: String = row.get(0)?;
             let modified_at: DateTime<Utc> = row.get(1)?;
@@ -25,8 +24,9 @@ impl Db {
     }
 
     pub fn delete_documents_by_prefix(&self, prefix: &str) -> Result<usize> {
+        let conn = self.get_conn()?;
         let like_pattern = format!("{}%", prefix.replace("\\", "/"));
-        let tx = self.conn.unchecked_transaction()?;
+        let tx = conn.unchecked_transaction()?;
         tx.execute(
             "DELETE FROM vec_chunks WHERE rowid IN (SELECT c.id FROM chunks c JOIN documents d ON c.document_id = d.id WHERE d.filename LIKE ?)",
             params![like_pattern],
@@ -41,11 +41,12 @@ impl Db {
 
     /// Deletes a batch of documents in a single transaction.
     pub fn delete_documents_batch(&self, filenames: &[&str]) -> Result<usize> {
+        let conn = self.get_conn()?;
         if filenames.is_empty() {
             return Ok(0);
         }
 
-        let tx = self.conn.unchecked_transaction()?;
+        let tx = conn.unchecked_transaction()?;
         let mut removed = 0;
         for &filename in filenames {
             if let Some(doc_id) = tx
@@ -71,8 +72,8 @@ impl Db {
 
     /// Deletes a document and its associated chunks from the database
     pub fn delete_document(&self, filename: &str) -> Result<bool> {
-        let doc_id: Option<i64> = self
-            .conn
+        let conn = self.get_conn()?;
+        let doc_id: Option<i64> = conn
             .query_row(
                 "SELECT id FROM documents WHERE filename = ?",
                 params![filename],
@@ -82,15 +83,13 @@ impl Db {
 
         if let Some(doc_id) = doc_id {
             // Virtual table cascade deletion workaround
-            self.conn.execute(
+            conn.execute(
                 "DELETE FROM vec_chunks WHERE rowid IN (SELECT id FROM chunks WHERE document_id = ?)",
                 params![doc_id],
             )?;
 
             // Cascade deletes chunks, code_metadata, code_relations
-            let rows = self
-                .conn
-                .execute("DELETE FROM documents WHERE id = ?", params![doc_id])?;
+            let rows = conn.execute("DELETE FROM documents WHERE id = ?", params![doc_id])?;
             Ok(rows > 0)
         } else {
             Ok(false)
@@ -99,19 +98,20 @@ impl Db {
 
     /// Inserts or updates a markdown document with its chunks and embeddings
     pub fn insert_document(
-        &mut self,
+        &self,
         filename: &str,
         modified_at: DateTime<Utc>,
         chunks: &[Chunk<'_>],
         embeddings: &[Vec<f32>],
     ) -> Result<()> {
+        let mut conn = self.get_conn()?;
         assert_eq!(
             chunks.len(),
             embeddings.len(),
             "chunks and embeddings length mismatch"
         );
 
-        let tx = self.conn.transaction()?;
+        let tx = conn.transaction()?;
         upsert_document_and_insert_chunks(&tx, filename, modified_at, chunks, embeddings)?;
         tx.commit()?;
         Ok(())
@@ -119,13 +119,14 @@ impl Db {
 
     /// Inserts word mappings into the dictionary table (UPSERT).
     pub fn insert_word_mappings(
-        &mut self,
+        &self,
         mappings: &[(String, String, String, f64, String)],
     ) -> Result<()> {
+        let mut conn = self.get_conn()?;
         if mappings.is_empty() {
             return Ok(());
         }
-        let tx = self.conn.transaction()?;
+        let tx = conn.transaction()?;
         for (source_word, target_word, source_lang, confidence, source_doc) in mappings {
             tx.execute(
                 r#"
@@ -143,18 +144,19 @@ impl Db {
 
     /// Returns the total number of word mappings in the dictionary.
     pub fn get_word_mapping_count(&self) -> Result<i64> {
-        self.conn
-            .query_row("SELECT COUNT(*) FROM word_mapping", [], |row| row.get(0))
+        let conn = self.get_conn()?;
+        conn.query_row("SELECT COUNT(*) FROM word_mapping", [], |row| row.get(0))
     }
 
     /// Inserts or updates a code document with its chunks, vectors, and metadata
     pub fn insert_code_document(
-        &mut self,
+        &self,
         filename: &str,
         modified_at: DateTime<Utc>,
         chunks: &[CodeChunk<'_>],
         embeddings: &[Vec<f32>],
     ) -> Result<()> {
+        let mut conn = self.get_conn()?;
         assert_eq!(
             chunks.len(),
             embeddings.len(),
@@ -170,7 +172,7 @@ impl Db {
             })
             .collect();
 
-        let tx = self.conn.transaction()?;
+        let tx = conn.transaction()?;
         let chunk_ids = upsert_document_and_insert_chunks(
             &tx,
             filename,
@@ -257,7 +259,7 @@ mod tests {
 
     #[test]
     fn test_documents_crud() {
-        let mut db = Db::open_in_memory().unwrap();
+        let db = Db::open_in_memory().unwrap();
         let now = Utc::now();
         let filename = "test.md";
 
@@ -284,13 +286,15 @@ mod tests {
 
         // 3. Count rows
         let chunks_count: i64 = db
-            .conn
+            .get_conn()
+            .unwrap()
             .query_row("SELECT COUNT(*) FROM chunks", [], |row| row.get(0))
             .unwrap();
         assert_eq!(chunks_count, 2);
 
         let vec_chunks_count: i64 = db
-            .conn
+            .get_conn()
+            .unwrap()
             .query_row("SELECT COUNT(*) FROM vec_chunks", [], |row| row.get(0))
             .unwrap();
         assert_eq!(vec_chunks_count, 2);
@@ -306,13 +310,15 @@ mod tests {
 
         // Count rows again - old chunks should be deleted
         let chunks_count: i64 = db
-            .conn
+            .get_conn()
+            .unwrap()
             .query_row("SELECT COUNT(*) FROM chunks", [], |row| row.get(0))
             .unwrap();
         assert_eq!(chunks_count, 1);
 
         let vec_chunks_count: i64 = db
-            .conn
+            .get_conn()
+            .unwrap()
             .query_row("SELECT COUNT(*) FROM vec_chunks", [], |row| row.get(0))
             .unwrap();
         assert_eq!(vec_chunks_count, 1);
@@ -323,13 +329,15 @@ mod tests {
 
         // Verify cascading deletes
         let chunks_count: i64 = db
-            .conn
+            .get_conn()
+            .unwrap()
             .query_row("SELECT COUNT(*) FROM chunks", [], |row| row.get(0))
             .unwrap();
         assert_eq!(chunks_count, 0);
 
         let vec_chunks_count: i64 = db
-            .conn
+            .get_conn()
+            .unwrap()
             .query_row("SELECT COUNT(*) FROM vec_chunks", [], |row| row.get(0))
             .unwrap();
         assert_eq!(vec_chunks_count, 0);
@@ -337,7 +345,7 @@ mod tests {
 
     #[test]
     fn test_delete_documents_batch() {
-        let mut db = Db::open_in_memory().unwrap();
+        let db = Db::open_in_memory().unwrap();
         let now = Utc::now();
 
         db.insert_document(

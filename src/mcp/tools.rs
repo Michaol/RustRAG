@@ -184,32 +184,48 @@ impl AppTools {
             directory: p.directory.as_deref(),
             file_pattern: p.file_pattern.as_deref(),
         };
-        let has_filter = filter.directory.is_some() || filter.file_pattern.is_some();
+        let _has_filter = filter.directory.is_some() || filter.file_pattern.is_some();
 
-        // Vectorize query
+        // Pre-clone context limits
         let embedder = self.ctx.get_embedder().await;
-        let query_vector = embedder
-            .embed(&p.query)
-            .map_err(|e| McpError::invalid_request(format!("embedding failed: {e}"), None))?;
+        let db = self.ctx.db.clone();
 
-        // Search DB
-        let db = self.ctx.db.lock().await;
-        let filter_ref = if has_filter { Some(&filter) } else { None };
-        let results = db
-            .search_with_filter(&query_vector, top_k, filter_ref)
-            .map_err(|e| McpError::internal_error(format!("search failed: {e}"), None))?;
+        let query_str = p.query.clone();
+        let p_directory = p.directory.clone();
+        let p_file_pattern = p.file_pattern.clone();
 
-        // Also search by keyword fallback
-        let keywords: Vec<&str> = p.query.split_whitespace().collect();
-        let keyword_results = db
-            .search_symbols_by_keywords(&keywords, top_k)
-            .unwrap_or_default();
-        drop(db);
+        let (results, keyword_results) = tokio::task::spawn_blocking(move || {
+            let query_vector = embedder
+                .embed(&query_str)
+                .map_err(|e| McpError::invalid_request(format!("embedding failed: {e}"), None))?;
+
+            let filter = SearchFilter {
+                directory: p_directory.as_deref(),
+                file_pattern: p_file_pattern.as_deref(),
+            };
+            let has_filter = filter.directory.is_some() || filter.file_pattern.is_some();
+            let filter_ref = if has_filter { Some(&filter) } else { None };
+
+            let r = db
+                .search_with_filter(&query_vector, top_k, filter_ref)
+                .map_err(|e| McpError::internal_error(format!("search failed: {e}"), None))?;
+
+            let keywords: Vec<&str> = query_str.split_whitespace().collect();
+            let kr = db
+                .search_symbols_by_keywords(&keywords, top_k)
+                .unwrap_or_default();
+
+            Ok::<_, McpError>((r, kr))
+        })
+        .await
+        .map_err(|e| McpError::internal_error(format!("blocking failed: {e}"), None))??;
+        // removed drop(db)
 
         // Check for updates (non-blocking, best-effort)
         let config_guard = self.ctx.config.read().await;
         let update_info = if config_guard.is_update_check_enabled() {
             crate::updater::get_update_info(crate::updater::CURRENT_VERSION, &config_guard.db_path)
+                .await
         } else {
             None
         };
@@ -379,9 +395,10 @@ impl AppTools {
         description = "Retrieve list of indexed documents (limited to 500 results for stability)"
     )]
     async fn list_documents(&self) -> Result<CallToolResult, McpError> {
-        let db = self.ctx.db.lock().await;
-        let docs = db
-            .list_documents()
+        let db = self.ctx.db.clone();
+        let docs = tokio::task::spawn_blocking(move || db.list_documents())
+            .await
+            .map_err(|e| McpError::internal_error(format!("blocking failed: {e}"), None))?
             .map_err(|e| McpError::internal_error(format!("list failed: {e}"), None))?;
 
         let total_count = docs.len();
@@ -428,8 +445,11 @@ impl AppTools {
 
         match action {
             "delete" => {
-                let db = self.ctx.db.lock().await;
-                db.delete_document(&p.filename)
+                let db = self.ctx.db.clone();
+                let f_clone = p.filename.clone();
+                tokio::task::spawn_blocking(move || db.delete_document(&f_clone))
+                    .await
+                    .map_err(|e| McpError::internal_error(format!("blocking failed: {e}"), None))?
                     .map_err(|e| McpError::internal_error(format!("delete failed: {e}"), None))?;
 
                 json_result(serde_json::json!({
@@ -441,10 +461,16 @@ impl AppTools {
             "reindex" => {
                 // Delete from DB
                 {
-                    let db = self.ctx.db.lock().await;
-                    db.delete_document(&p.filename).map_err(|e| {
-                        McpError::internal_error(format!("delete failed: {e}"), None)
-                    })?;
+                    let db = self.ctx.db.clone();
+                    let f_clone = p.filename.clone();
+                    tokio::task::spawn_blocking(move || db.delete_document(&f_clone))
+                        .await
+                        .map_err(|e| {
+                            McpError::internal_error(format!("blocking failed: {e}"), None)
+                        })?
+                        .map_err(|e| {
+                            McpError::internal_error(format!("delete failed: {e}"), None)
+                        })?;
                 }
 
                 // Re-index
@@ -536,10 +562,17 @@ impl AppTools {
         let direction = p.direction.as_deref().unwrap_or("both");
         let rel_type = p.relation_type.as_deref();
 
-        let db = self.ctx.db.lock().await;
-        let relations = db
-            .find_symbol_relations(&p.symbol, direction, rel_type)
-            .map_err(|e| McpError::internal_error(format!("search failed: {e}"), None))?;
+        let db = self.ctx.db.clone();
+        let sym_clone = p.symbol.clone();
+        let dir_clone = direction.to_string();
+        let rel_clone = rel_type.map(|s| s.to_string());
+
+        let relations = tokio::task::spawn_blocking(move || {
+            db.find_symbol_relations(&sym_clone, &dir_clone, rel_clone.as_deref())
+        })
+        .await
+        .map_err(|e| McpError::internal_error(format!("blocking failed: {e}"), None))?
+        .map_err(|e| McpError::internal_error(format!("search failed: {e}"), None))?;
 
         let results_json: Vec<serde_json::Value> = relations
             .iter()
@@ -595,11 +628,13 @@ impl AppTools {
             }
         } else {
             // Extract from all indexed documents
-            let db = self.ctx.db.lock().await;
-            let docs = db.list_documents().map_err(|e| {
-                McpError::internal_error(format!("list documents failed: {e}"), None)
-            })?;
-            drop(db);
+            let db = self.ctx.db.clone();
+            let docs = tokio::task::spawn_blocking(move || db.list_documents())
+                .await
+                .map_err(|e| McpError::internal_error(format!("blocking failed: {e}"), None))?
+                .map_err(|e| {
+                    McpError::internal_error(format!("list documents failed: {e}"), None)
+                })?;
 
             for doc_path in docs.keys() {
                 let content = match std::fs::read_to_string(doc_path) {
@@ -624,14 +659,18 @@ impl AppTools {
         }
 
         // Insert into DB
-        let mut db = self.ctx.db.lock().await;
-        if !all_mappings.is_empty() {
-            db.insert_word_mappings(&all_mappings).map_err(|e| {
-                McpError::internal_error(format!("insert mappings failed: {e}"), None)
-            })?;
-        }
-
-        let total_count = db.get_word_mapping_count().unwrap_or(0);
+        let db = self.ctx.db.clone();
+        let mappings_clone = all_mappings.clone();
+        let total_count = tokio::task::spawn_blocking(move || {
+            if !mappings_clone.is_empty() {
+                db.insert_word_mappings(&mappings_clone).map_err(|e| {
+                    McpError::internal_error(format!("insert mappings failed: {e}"), None)
+                })?;
+            }
+            Ok::<_, McpError>(db.get_word_mapping_count().unwrap_or(0))
+        })
+        .await
+        .map_err(|e| McpError::internal_error(format!("blocking failed: {e}"), None))??;
 
         // Sample for response (max 10)
         let sample: Vec<serde_json::Value> = all_mappings
@@ -721,24 +760,31 @@ async fn index_single_markdown_file(
         }));
     }
 
-    let text_refs: Vec<&str> = chunks.iter().map(|c| c.content.as_str()).collect();
     let embedder = ctx.get_embedder().await;
-    let vectors = embedder
-        .embed_batch(&text_refs)
-        .map_err(|e| McpError::invalid_request(format!("embedding failed: {e}"), None))?;
-
     let db_path = filepath.replace('\\', "/");
-    let db_chunks: Vec<crate::db::models::Chunk> = chunks
-        .iter()
-        .map(|c| crate::db::models::Chunk {
-            position: c.position,
-            content: c.content.as_str(),
-        })
-        .collect();
+    let db = ctx.db.clone();
 
-    let mut db = ctx.db.lock().await;
-    db.insert_document(&db_path, chrono::Utc::now(), &db_chunks, &vectors)
-        .map_err(|e| McpError::internal_error(format!("DB insert failed: {e}"), None))?;
+    tokio::task::spawn_blocking(move || {
+        let text_refs: Vec<&str> = chunks.iter().map(|c| c.content.as_str()).collect();
+        let vectors = embedder
+            .embed_batch(&text_refs)
+            .map_err(|e| McpError::invalid_request(format!("embedding failed: {e}"), None))?;
+
+        let db_chunks: Vec<crate::db::models::Chunk> = chunks
+            .iter()
+            .map(|c| crate::db::models::Chunk {
+                position: c.position,
+                content: c.content.as_str(),
+            })
+            .collect();
+
+        db.insert_document(&db_path, chrono::Utc::now(), &db_chunks, &vectors)
+            .map_err(|e| McpError::internal_error(format!("DB insert failed: {e}"), None))?;
+
+        Ok::<_, McpError>(())
+    })
+    .await
+    .map_err(|e| McpError::internal_error(format!("blocking task failed: {e}"), None))??;
 
     json_result(serde_json::json!({
         "success": true,
@@ -764,37 +810,44 @@ async fn index_single_code_file(
         return Ok(());
     }
 
-    let text_refs: Vec<String> = code_chunks.iter().map(|c| c.get_embedding_text()).collect();
-    let text_str_refs: Vec<&str> = text_refs.iter().map(|s| s.as_str()).collect();
-
     let embedder = ctx.get_embedder().await;
-    let vectors = embedder
-        .embed_batch(&text_str_refs)
-        .map_err(|e| McpError::invalid_request(format!("embedding failed: {e}"), None))?;
-
-    // Convert to db models
-    let db_chunks: Vec<crate::db::models::CodeChunk> = code_chunks
-        .iter()
-        .enumerate()
-        .map(|(i, c)| crate::db::models::CodeChunk {
-            chunk: crate::db::models::Chunk {
-                position: i,
-                content: &c.content,
-            },
-            symbol_name: Some(c.symbol_name.as_str()),
-            symbol_type: &c.symbol_type,
-            language: &c.language,
-            start_line: Some(c.start_line),
-            end_line: Some(c.end_line),
-            parent_symbol: c.parent_symbol.as_deref(),
-            signature: Some(c.signature.as_str()),
-        })
-        .collect();
-
     let db_path = filepath.replace('\\', "/");
-    let mut db = ctx.db.lock().await;
-    db.insert_code_document(&db_path, chrono::Utc::now(), &db_chunks, &vectors)
-        .map_err(|e| McpError::internal_error(format!("DB insert failed: {e}"), None))?;
+    let db = ctx.db.clone();
+
+    tokio::task::spawn_blocking(move || {
+        let text_refs: Vec<String> = code_chunks.iter().map(|c| c.get_embedding_text()).collect();
+        let text_str_refs: Vec<&str> = text_refs.iter().map(|s| s.as_str()).collect();
+
+        let vectors = embedder
+            .embed_batch(&text_str_refs)
+            .map_err(|e| McpError::invalid_request(format!("embedding failed: {e}"), None))?;
+
+        // Convert to db models
+        let db_chunks: Vec<crate::db::models::CodeChunk> = code_chunks
+            .iter()
+            .enumerate()
+            .map(|(i, c)| crate::db::models::CodeChunk {
+                chunk: crate::db::models::Chunk {
+                    position: i,
+                    content: &c.content,
+                },
+                symbol_name: Some(c.symbol_name.as_str()),
+                symbol_type: &c.symbol_type,
+                language: &c.language,
+                start_line: Some(c.start_line),
+                end_line: Some(c.end_line),
+                parent_symbol: c.parent_symbol.as_deref(),
+                signature: Some(c.signature.as_str()),
+            })
+            .collect();
+
+        db.insert_code_document(&db_path, chrono::Utc::now(), &db_chunks, &vectors)
+            .map_err(|e| McpError::internal_error(format!("DB insert failed: {e}"), None))?;
+
+        Ok::<_, McpError>(())
+    })
+    .await
+    .map_err(|e| McpError::internal_error(format!("blocking task failed: {e}"), None))??;
 
     Ok(())
 }

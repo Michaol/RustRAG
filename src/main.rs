@@ -7,7 +7,6 @@ use rustrag::indexer::core::Indexer;
 use rustrag::mcp::server::{McpContext, McpServer};
 use rustrag::updater;
 use std::sync::Arc;
-use tokio::sync::Mutex as TokioMutex;
 use tracing_subscriber::EnvFilter;
 
 /// Local RAG MCP Server — Rust implementation of DevRag
@@ -73,10 +72,9 @@ async fn main() -> Result<()> {
     // 3b. Check for updates (best-effort, errors silently ignored)
     if config.is_update_check_enabled() {
         let ver = updater::CURRENT_VERSION;
-        let _ = tokio::task::spawn_blocking(move || {
-            updater::check_for_update(ver, "");
-        })
-        .await;
+        tokio::spawn(async move {
+            updater::check_for_update(ver, "").await;
+        });
     }
 
     // 4. Download model files (if needed)
@@ -97,8 +95,8 @@ async fn main() -> Result<()> {
     tracing::info!(db_path = %config.db_path, "Opening database");
     let db = Db::open(&config.db_path).context("Failed to open database")?;
 
-    // 6. Wrap db in Arc<TokioMutex> BEFORE sync so MCP and sync can share it
-    let db = Arc::new(TokioMutex::new(db));
+    // 6. Wrap db in Arc so MCP and sync can share it
+    let db = Arc::new(db);
 
     // 7. Create MCP context (embedder is lazy-loaded on first search/index call)
     let mcp_ctx = McpContext::new(
