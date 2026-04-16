@@ -24,7 +24,7 @@ v2.2.0 introduces a major architecture refactor focusing on high concurrency and
 ---
 
 <details>
-<summary><b>Expand to view History (v2.0.0 and prior)</b></summary>
+<summary><b>Expand to view History (v2.1.0 and prior)</b></summary>
 <br>
 
 ### v2.1.0 Advanced Improvements
