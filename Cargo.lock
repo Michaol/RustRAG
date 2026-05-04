@@ -2822,7 +2822,7 @@ dependencies = [
 
 [[package]]
 name = "rustrag"
-version = "2.4.0"
+version = "2.4.1"
 dependencies = [
  "anyhow",
  "axum",
@@ -3194,9 +3194,9 @@ dependencies = [
 
 [[package]]
 name = "sqlite-vec"
-version = "0.1.7-alpha.10"
+version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d9dad2e5788b411800d8e15d55ee2c672ba0c0c87076713a1e6e2c9b83372a92"
+checksum = "d0ba424237a9a5db2f6071f193319e2b6a32f7f3961debb2fbbfe67067abce3f"
 dependencies = [
  "cc",
 ]
