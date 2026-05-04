@@ -3,11 +3,9 @@
 /// Downloads the required ONNX model and tokenizer files if they don't
 /// already exist locally. Mirrors Go version's `download.go`.
 use std::fs;
-use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
-use indicatif::{ProgressBar, ProgressStyle};
 use tracing::info;
 
 /// Base URL for HuggingFace model files.
@@ -74,39 +72,20 @@ pub fn download_model_files(model_dir: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Download a single file with a progress bar.
+/// Download a single file, streaming the response to disk.
 fn download_file(dest: &Path, url: &str) -> Result<()> {
-    let resp =
+    let mut resp =
         reqwest::blocking::get(url).with_context(|| format!("HTTP request failed: {url}"))?;
 
     if !resp.status().is_success() {
         anyhow::bail!("bad status: {} for {url}", resp.status());
     }
 
-    let total = resp.content_length().unwrap_or(0);
-
-    // Set up progress bar
-    let pb = if total > 0 {
-        let pb = ProgressBar::new(total);
-        pb.set_style(
-            ProgressStyle::default_bar()
-                .template("  {bar:40.cyan/blue} {percent}% ({bytes}/{total_bytes}) {msg}")
-                .expect("valid template")
-                .progress_chars("█▓░"),
-        );
-        pb
-    } else {
-        ProgressBar::new_spinner()
-    };
-
-    // Stream to file
     let mut file = fs::File::create(dest)
         .with_context(|| format!("failed to create file: {}", dest.display()))?;
 
-    let bytes = resp.bytes().context("failed to read response body")?;
-    file.write_all(&bytes).context("failed to write file")?;
-    pb.set_position(bytes.len() as u64);
-    pb.finish_and_clear();
+    resp.copy_to(&mut file)
+        .context("failed to download and write file")?;
 
     Ok(())
 }

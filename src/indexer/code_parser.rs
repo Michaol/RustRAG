@@ -143,7 +143,7 @@ impl CodeParser {
 fn extract_signature(content: &str, lang: &str) -> String {
     let content = content.trim();
     match lang {
-        "go" | "rust" | "php" => {
+        "go" | "rust" => {
             if let Some(idx) = content.find('{') {
                 let sig = &content[..idx];
                 sig.replace('\n', " ")
@@ -208,11 +208,7 @@ fn find_parent_symbol(node: Node, source: &[u8], lang: &str) -> Option<String> {
             "go" => kind == "type_declaration",
             "python" => kind == "class_definition",
             "typescript" | "javascript" => kind == "class_declaration",
-            "php" => {
-                kind == "class_declaration"
-                    || kind == "trait_declaration"
-                    || kind == "interface_declaration"
-            }
+            "php" => false, // PHP not supported; kept for future extension
             "rust" => kind == "impl_item" || kind == "struct_item" || kind == "trait_item",
             _ => false,
         };

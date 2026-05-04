@@ -72,24 +72,45 @@ pub fn parse(content: &str) -> Result<(Option<Metadata>, String)> {
     Ok((Some(metadata), body))
 }
 
+/// Quote a YAML scalar value if it contains special characters.
+fn yaml_quote(value: &str) -> String {
+    if value.is_empty()
+        || value.contains(':')
+        || value.contains('#')
+        || value.contains('[')
+        || value.contains(']')
+        || value.contains('{')
+        || value.contains('}')
+        || value.contains('"')
+        || value.contains('\'')
+        || value.starts_with(' ')
+        || value.ends_with(' ')
+    {
+        format!("\"{}\"", value.replace('"', "\\\""))
+    } else {
+        value.to_string()
+    }
+}
+
 /// Generate YAML frontmatter string from metadata.
 pub fn generate(metadata: &Metadata) -> String {
     let mut builder = String::from("---\n");
 
     if !metadata.domain.is_empty() {
-        builder.push_str(&format!("domain: {}\n", metadata.domain));
+        builder.push_str(&format!("domain: {}\n", yaml_quote(&metadata.domain)));
     }
     if !metadata.doc_type.is_empty() {
-        builder.push_str(&format!("docType: {}\n", metadata.doc_type));
+        builder.push_str(&format!("docType: {}\n", yaml_quote(&metadata.doc_type)));
     }
     if !metadata.language.is_empty() {
-        builder.push_str(&format!("language: {}\n", metadata.language));
+        builder.push_str(&format!("language: {}\n", yaml_quote(&metadata.language)));
     }
     if !metadata.tags.is_empty() {
-        builder.push_str(&format!("tags: [{}]\n", metadata.tags.join(", ")));
+        let quoted_tags: Vec<String> = metadata.tags.iter().map(|t| yaml_quote(t)).collect();
+        builder.push_str(&format!("tags: [{}]\n", quoted_tags.join(", ")));
     }
     if !metadata.project.is_empty() {
-        builder.push_str(&format!("project: {}\n", metadata.project));
+        builder.push_str(&format!("project: {}\n", yaml_quote(&metadata.project)));
     }
 
     builder.push_str("---\n");

@@ -12,7 +12,24 @@ A high-performance local RAG (Retrieval-Augmented Generation) MCP Server written
 
 ---
 
-## Latest Release (v2.2.0)
+## Latest Release (v2.3.0)
+
+v2.3.0 is a security and code quality hardening release, addressing 26 issues found through systematic code review:
+
+- **Security**: Fixed path validation on Windows, restricted arbitrary file reads via MCP tools, bound HTTP server to localhost by default.
+- **Reliability**: Replaced production `assert_eq!` panics with proper error propagation, fixed indexer counter logic, wrapped blocking downloads in `spawn_blocking`.
+- **Config**: Invalid JSON now returns an error instead of silently falling back to defaults; vector dimension is validated against the sqlite-vec schema at startup.
+- **Internationalization**: Language detection now recognizes Japanese (Hiragana/Katakana) and Korean (Hangul); YAML frontmatter properly escapes special characters.
+- **Performance**: ONNX thread count auto-detects via `available_parallelism()`; `LanguageConfig` cached with `LazyLock`; `build_dictionary` limits iteration to 100 documents by default.
+- **Code Quality**: Removed dead PHP code paths, fixed TOCTOU race in file watcher, added `// SAFETY:` documentation for unsafe blocks.
+
+---
+
+<details>
+<summary><b>Expand to view History (v2.2.0 and prior)</b></summary>
+<br>
+
+### v2.2.0 Architecture Refactor
 
 v2.2.0 introduces a major architecture refactor focusing on high concurrency and asynchronous reliability:
 
@@ -20,8 +37,6 @@ v2.2.0 introduces a major architecture refactor focusing on high concurrency and
 - **Async Networking**: Migrated the update checker from `reqwest::blocking` to native async `reqwest` to eliminate Tokio thread starvation.
 - **Config Safety**: Resolved TOCTOU (Time-of-check to time-of-use) race conditions in configuration loading for improved reliability.
 - **Performance**: Optimized lazy initialization of the ONNX embedder and improved internal error bubbling.
-
----
 
 <details>
 <summary><b>Expand to view History (v2.1.0 and prior)</b></summary>
@@ -220,10 +235,10 @@ This setup grants your local AI assistant instantaneous insight into millions of
 To keep the repository footprint minimal and ensure out-of-the-box compatibility for all users on any platform (specifically Apple Silicon Macs or laptops without discrete GPUs), RustRAG defaults to a lightweight **CPU-only Mode** (`fallback_to_cpu: true`). However, if you possess a dedicated NVIDIA GPU (e.g. RTX 30/40 series) and desire microsecond-level vector search throughput, you can effortlessly unlock TensorRT/CUDA acceleration:
 
 1. **Download Official GPU Runtimes**
-   Navigate to the [ONNX Runtime v1.23.2 Release Page](https://github.com/microsoft/onnxruntime/releases/tag/v1.23.2) and download the appropriate OS GPU package (approx 300+MB):
+   Navigate to the [ONNX Runtime v1.25.1 Release Page](https://github.com/microsoft/onnxruntime/releases/tag/v1.25.1) and download the appropriate OS GPU package (approx 300+MB):
 
-- **Windows:** Download `onnxruntime-win-x64-gpu-1.23.2.zip`
-- **Linux:** Download `onnxruntime-linux-x64-gpu-1.23.2.tgz`
+- **Windows:** Download `onnxruntime-win-x64-gpu-1.25.1.zip`
+- **Linux:** Download `onnxruntime-linux-x64-gpu-1.25.1.tgz`
 - **macOS:** Apple Silicon Macs run natively fast on CPU with CoreML support. Do not download the Nvidia packages.
 
 2. **Setup the Dynamic Libraries**
@@ -249,6 +264,8 @@ If the requirements are met, upon startup the MCP log will confidently announce 
 | `--log-level`     | `info`        | Log level (trace/debug/info/warn/error) |
 | `--skip-download` | false         | Skip automatic model download           |
 | `--skip-sync`     | false         | Skip initial document sync              |
+| `--transport`     | `stdio`       | Transport mode: `stdio` or `http`       |
+| `--port`          | `8765`        | HTTP port (used if transport=`http`)    |
 | `--version`       | —             | Display version and exit                |
 
 ## MCP Tools
@@ -292,7 +309,7 @@ src/
 │   ├── dictionary.rs # Multilingual dictionary
 │   └── languages.rs # Language-specific TS queries
 └── mcp/ # MCP protocol layer
-    ├── server.rs # Server setup (stdio transport)
+    ├── server.rs # Server setup (stdio + HTTP transport)
     └── tools.rs # 7 tool handler implementations
 ```
 

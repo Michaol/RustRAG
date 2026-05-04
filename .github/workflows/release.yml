@@ -26,6 +26,21 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      - name: Check latest ONNX Runtime version
+        shell: bash
+        run: |
+          ORT_VERSION="1.25.1"
+          LATEST=$(curl -sf https://api.github.com/repos/microsoft/onnxruntime/releases/latest | grep '"tag_name"' | sed 's/.*"v\(.*\)".*/\1/')
+          if [ -z "$LATEST" ]; then
+            echo "::warning::Could not fetch latest ONNX Runtime version from GitHub API"
+          elif [ "$ORT_VERSION" != "$LATEST" ]; then
+            echo "::error::ONNX Runtime version mismatch! Pinned: $ORT_VERSION, Latest: $LATEST"
+            echo "Update ORT_VERSION in release.yml to $LATEST and the download paths in README.md / README_ZH.md"
+            exit 1
+          else
+            echo "ONNX Runtime version is up to date: $ORT_VERSION"
+          fi
+
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
@@ -46,7 +61,7 @@ jobs:
           fi
 
           # 2. Download ONNX Runtime dynamic library from Microsoft official releases
-          ORT_VERSION="1.23.2"
+          ORT_VERSION="1.25.1"
           if [ "$RUNNER_OS" == "Windows" ]; then
             echo "Downloading ONNX Runtime $ORT_VERSION for Windows..."
             curl -sL "https://github.com/microsoft/onnxruntime/releases/download/v${ORT_VERSION}/onnxruntime-win-x64-${ORT_VERSION}.zip" -o ort.zip
@@ -107,7 +122,7 @@ jobs:
           path: dist/
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           generate_release_notes: true
           files: dist/**/*

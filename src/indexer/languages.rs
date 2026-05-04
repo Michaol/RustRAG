@@ -1,3 +1,4 @@
+use std::sync::LazyLock;
 use tree_sitter::Language;
 
 pub struct LanguageConfig {
@@ -10,25 +11,27 @@ pub struct LanguageConfig {
     pub inherit_query: &'static str,
 }
 
+static ALL_CONFIGS: LazyLock<Vec<LanguageConfig>> = LazyLock::new(|| {
+    vec![
+        go_config(),
+        python_config(),
+        typescript_config(),
+        javascript_config(),
+        rust_config(),
+    ]
+});
+
 impl LanguageConfig {
-    pub fn get_all() -> Vec<LanguageConfig> {
-        vec![
-            go_config(),
-            python_config(),
-            typescript_config(),
-            javascript_config(),
-            rust_config(),
-        ]
+    pub fn get_all() -> &'static [LanguageConfig] {
+        &ALL_CONFIGS
     }
 
-    pub fn get_by_extension(ext: &str) -> Option<LanguageConfig> {
-        Self::get_all()
-            .into_iter()
-            .find(|c| c.extensions.contains(&ext))
+    pub fn get_by_extension(ext: &str) -> Option<&'static LanguageConfig> {
+        Self::get_all().iter().find(|c| c.extensions.contains(&ext))
     }
 
-    pub fn get_by_name(name: &str) -> Option<LanguageConfig> {
-        Self::get_all().into_iter().find(|c| c.name == name)
+    pub fn get_by_name(name: &str) -> Option<&'static LanguageConfig> {
+        Self::get_all().iter().find(|c| c.name == name)
     }
 }
 

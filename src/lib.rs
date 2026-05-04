@@ -10,7 +10,7 @@
 //! - **[`db`]** — SQLite + sqlite-vec vector database (CRUD, search, relations)
 //! - **[`embedder`]** — Text embedding via ONNX Runtime (multilingual-e5-small)
 //! - **[`indexer`]** — Markdown chunking, Tree-sitter code parsing, dictionary extraction
-//! - **[`mcp`]** — MCP server with 10 tool handlers (stdio transport via rmcp)
+//! - **[`mcp`]** — MCP server with 7 tool handlers (stdio + HTTP transport via rmcp)
 //! - **[`frontmatter`]** — YAML frontmatter read/write for markdown files
 //! - **[`updater`]** — Version update checker (GitHub API + 24h cache)
 
