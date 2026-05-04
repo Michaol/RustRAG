@@ -13,7 +13,18 @@ use serde::{Deserialize, Serialize};
 use tracing::{info, warn};
 
 // The set of extensions the indexer can handle
-const SUPPORTED_EXTENSIONS: &[&str] = &["md", "rs", "go", "py", "js", "ts"];
+const SUPPORTED_EXTENSIONS: &[&str] = &[
+    // 代码
+    "md", "rs", "go", "py", "js", "ts", "jsx", "tsx",
+    // 纯文本
+    "txt", "log",
+    // 结构化数据
+    "json", "yaml", "yml", "toml", "csv",
+    // HTML
+    "html", "htm",
+    // 二进制文档
+    "pdf", "docx", "xls", "xlsx", "xlsb", "ods",
+];
 
 // ── Default value functions ──────────────────────────────────────────
 
@@ -61,6 +72,10 @@ fn default_batch_size() -> usize {
     32
 }
 
+fn default_file_extensions() -> Vec<String> {
+    SUPPORTED_EXTENSIONS.iter().map(|s| s.to_string()).collect()
+}
+
 // ── Config structs ───────────────────────────────────────────────────
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -75,8 +90,8 @@ pub struct Config {
     #[serde(default = "default_exclude_patterns")]
     pub exclude_patterns: Vec<String>,
 
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub file_extensions: Option<Vec<String>>,
+    #[serde(default = "default_file_extensions")]
+    pub file_extensions: Vec<String>,
 
     #[serde(default = "default_db_path")]
     pub db_path: String,
@@ -126,7 +141,7 @@ impl Default for Config {
             documents_dir: None,
             document_patterns: default_document_patterns(),
             exclude_patterns: default_exclude_patterns(),
-            file_extensions: None,
+            file_extensions: default_file_extensions(),
             db_path: default_db_path(),
             chunk_size: default_chunk_size(),
             search_top_k: default_search_top_k(),
@@ -165,15 +180,11 @@ impl Config {
         self.update_check.unwrap_or(true)
     }
 
-    /// Check if a file extension is supported for indexing,
-    /// using the optional `file_extensions` allowlist when set.
+    /// Check if a file extension is supported for indexing.
+    /// Uses `file_extensions` allowlist (defaults to all supported extensions).
     #[must_use]
     pub fn is_file_extension_supported(&self, ext: &str) -> bool {
-        let base_supported = SUPPORTED_EXTENSIONS.contains(&ext);
-        match &self.file_extensions {
-            Some(exts) => base_supported && exts.iter().any(|e| e == ext),
-            None => base_supported,
-        }
+        self.file_extensions.iter().any(|e| e == ext)
     }
 
     /// Load configuration from a JSON file.
@@ -292,19 +303,24 @@ impl Config {
 
 // ── Pattern helpers ──────────────────────────────────────────────────
 
-/// Expand a single pattern to matching markdown files.
+/// Check if a file extension is in the static supported list (no Config needed).
+fn is_known_extension(ext: &str) -> bool {
+    SUPPORTED_EXTENSIONS.contains(&ext)
+}
+
+/// Expand a single pattern to matching supported files.
 fn expand_pattern(pattern: &str) -> Result<Vec<PathBuf>> {
     // If pattern contains no wildcards, treat as a directory
     if !pattern.contains('*') && !pattern.contains('?') {
-        return walk_dir_for_md(Path::new(pattern));
+        return walk_dir_for_supported_files(Path::new(pattern));
     }
 
     // Handle ** (recursive glob) using `ignore` crate which respects gitignore
     double_star_glob(pattern)
 }
 
-/// Walk a directory recursively for .md files using the `ignore` crate.
-fn walk_dir_for_md(dir: &Path) -> Result<Vec<PathBuf>> {
+/// Walk a directory recursively for all supported file types using the `ignore` crate.
+fn walk_dir_for_supported_files(dir: &Path) -> Result<Vec<PathBuf>> {
     use ignore::WalkBuilder;
     let mut files = Vec::new();
     if !dir.exists() {
@@ -312,10 +328,12 @@ fn walk_dir_for_md(dir: &Path) -> Result<Vec<PathBuf>> {
     }
     for e in WalkBuilder::new(dir).hidden(true).build().flatten() {
         let path = e.path();
-        if e.file_type().is_some_and(|ft| ft.is_file())
-            && path.extension().and_then(|e| e.to_str()) == Some("md")
-        {
-            files.push(path.to_path_buf());
+        if e.file_type().is_some_and(|ft| ft.is_file()) {
+            if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+                if is_known_extension(ext) {
+                    files.push(path.to_path_buf());
+                }
+            }
         }
     }
     Ok(files)
@@ -344,15 +362,17 @@ fn double_star_glob(pattern: &str) -> Result<Vec<PathBuf>> {
         if !e.file_type().is_some_and(|ft| ft.is_file()) {
             continue;
         }
-        if suffix.is_empty() || suffix == "*.md" {
-            if path.extension().and_then(|e| e.to_str()) == Some("md") {
+        let ext = path.extension().and_then(|e| e.to_str());
+        let matches_ext = ext.is_some_and(is_known_extension);
+        if suffix.is_empty() {
+            if matches_ext {
                 files.push(path.to_path_buf());
             }
         } else if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
             if glob::Pattern::new(suffix)
                 .map(|p| p.matches(name))
                 .unwrap_or(false)
-                && path.extension().and_then(|e| e.to_str()) == Some("md")
+                && matches_ext
             {
                 files.push(path.to_path_buf());
             }
@@ -402,7 +422,9 @@ mod tests {
         assert_eq!(config.chunk_size, 500);
         assert_eq!(config.search_top_k, 5);
         assert_eq!(config.exclude_patterns.len(), 3);
-        assert!(config.file_extensions.is_none());
+        assert!(!config.file_extensions.is_empty());
+        assert!(config.file_extensions.contains(&"txt".to_string()));
+        assert!(config.file_extensions.contains(&"pdf".to_string()));
         assert_eq!(config.model.dimensions, 384);
         assert_eq!(config.model.name, "multilingual-e5-small");
         assert_eq!(config.compute.device, "auto");
@@ -520,6 +542,12 @@ mod tests {
         let config = Config::default();
         assert!(config.is_file_extension_supported("md"));
         assert!(config.is_file_extension_supported("rs"));
+        assert!(config.is_file_extension_supported("txt"));
+        assert!(config.is_file_extension_supported("json"));
+        assert!(config.is_file_extension_supported("html"));
+        assert!(config.is_file_extension_supported("pdf"));
+        assert!(config.is_file_extension_supported("docx"));
+        assert!(config.is_file_extension_supported("xlsx"));
         assert!(!config.is_file_extension_supported("java"));
         assert!(!config.is_file_extension_supported(""));
     }
@@ -527,7 +555,7 @@ mod tests {
     #[test]
     fn test_is_file_extension_supported_with_allowlist() {
         let config = Config {
-            file_extensions: Some(vec!["rs".to_string(), "md".to_string()]),
+            file_extensions: vec!["rs".to_string(), "md".to_string()],
             ..Default::default()
         };
         assert!(config.is_file_extension_supported("rs"));

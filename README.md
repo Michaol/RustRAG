@@ -12,7 +12,23 @@ A high-performance local RAG (Retrieval-Augmented Generation) MCP Server written
 
 ---
 
-## Latest Release (v2.3.0)
+## Latest Release (v2.4.0)
+
+v2.4.0 adds multi-format document support, expanding RustRAG from code-only indexing to a universal document RAG engine:
+
+- **Multi-Format Document Support**: Index plain text (`.txt`, `.log`), structured data (`.json`, `.yaml`, `.yml`, `.toml`, `.csv`), HTML (`.html`, `.htm`), PDF (`.pdf`), Word (`.docx`), and spreadsheets (`.xls`, `.xlsx`, `.xlsb`, `.ods`).
+- **Format-Specific Chunking**: Each format uses a tailored extraction and chunking strategy that preserves structural information (JSON key paths, CSV headers, spreadsheet sheet names, etc.).
+- **Configurable Extensions**: All 24 supported file types are enabled by default in `config.json`. Users can remove extensions to filter unwanted formats. Config hot-reload is fully supported.
+- **New Dependencies** (all pure Rust, no C bindings): `lopdf` (PDF), `docx-rs` (DOCX), `calamine` (XLS/XLSX/ODS), `scraper` (HTML), `toml`, `csv`.
+- **Also**: Added `.jsx`/`.tsx` to supported code extensions (Tree-sitter already supported them).
+
+---
+
+<details>
+<summary><b>Expand to view History (v2.3.0 and prior)</b></summary>
+<br>
+
+### v2.3.0 Security & Code Quality
 
 v2.3.0 is a security and code quality hardening release, addressing 26 issues found through systematic code review:
 
@@ -22,8 +38,6 @@ v2.3.0 is a security and code quality hardening release, addressing 26 issues fo
 - **Internationalization**: Language detection now recognizes Japanese (Hiragana/Katakana) and Korean (Hangul); YAML frontmatter properly escapes special characters.
 - **Performance**: ONNX thread count auto-detects via `available_parallelism()`; `LanguageConfig` cached with `LazyLock`; `build_dictionary` limits iteration to 100 documents by default.
 - **Code Quality**: Removed dead PHP code paths, fixed TOCTOU race in file watcher, added `// SAFETY:` documentation for unsafe blocks.
-
----
 
 <details>
 <summary><b>Expand to view History (v2.2.0 and prior)</b></summary>
@@ -90,6 +104,7 @@ v1.3.7 introduced a native hot-reloading mechanism for configurations and model 
 ## Features
 
 - **7 MCP Tools** — search, index, list_documents, manage_document, frontmatter, search_relations, build_dictionary
+- **24 Supported Formats** — Code (Rust, Go, Python, TypeScript, JavaScript), Markdown, plain text, structured data (JSON, YAML, TOML, CSV), HTML, PDF, DOCX, spreadsheets (XLS, XLSX, XLSB, ODS)
 - **Vector Search** — SQLite + sqlite-vec for fast local vector similarity search
 - **Code Intelligence** — Tree-sitter AST parsing for Rust, Go, Python, TypeScript, JavaScript
 - **Multilingual Dictionary** — CJK↔English symbol mapping extraction
@@ -153,6 +168,14 @@ Create a `config.json` in your project root (auto-generated with defaults on fir
 ```json
 {
   "document_patterns": ["./"],
+  "exclude_patterns": ["**/node_modules/**", "**/target/**", "**/.git/**"],
+  "file_extensions": [
+    "md", "rs", "go", "py", "js", "ts", "jsx", "tsx",
+    "txt", "log",
+    "json", "yaml", "yml", "toml", "csv",
+    "html", "htm",
+    "pdf", "docx", "xls", "xlsx", "xlsb", "ods"
+  ],
   "db_path": "./vectors.db",
   "chunk_size": 500,
   "search_top_k": 5,
@@ -306,6 +329,7 @@ src/
 ├── indexer/ # Document & code indexing
 │   ├── core.rs # Differential sync engine
 │   ├── markdown.rs # Markdown chunking
+│   ├── text_parser.rs # Multi-format document extraction (PDF, DOCX, XLSX, etc.)
 │   ├── code_parser.rs # Tree-sitter code parsing
 │   ├── relations.rs # Code relationship extraction
 │   ├── dictionary.rs # Multilingual dictionary
@@ -322,9 +346,23 @@ src/
 | Rust       | `.rs`     | tree-sitter-rust       |
 | Go         | `.go`     | tree-sitter-go         |
 | Python     | `.py`     | tree-sitter-python     |
-| TypeScript | `.ts`     | tree-sitter-typescript |
-| JavaScript | `.js`     | tree-sitter-javascript |
+| TypeScript | `.ts` `.tsx` | tree-sitter-typescript |
+| JavaScript | `.js` `.jsx` | tree-sitter-javascript |
 | Markdown   | `.md`     | pulldown-cmark         |
+
+## Supported Document Formats
+
+| Format              | Extensions                         | Parser / Library          |
+| ------------------- | ---------------------------------- | ------------------------- |
+| Plain Text          | `.txt`, `.log`                     | `fs::read_to_string`      |
+| JSON                | `.json`                            | `serde_json`              |
+| YAML                | `.yaml`, `.yml`                    | `serde_yaml`              |
+| TOML                | `.toml`                            | `toml`                    |
+| CSV                 | `.csv`                             | `csv`                     |
+| HTML                | `.html`, `.htm`                    | `scraper`                 |
+| PDF                 | `.pdf`                             | `lopdf`                   |
+| Word                | `.docx`                            | `docx-rs`                 |
+| Spreadsheet         | `.xls`, `.xlsx`, `.xlsb`, `.ods`   | `calamine`                |
 
 ## Building from Source
 

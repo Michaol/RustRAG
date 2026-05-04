@@ -1,5 +1,6 @@
 # Build
 /target
+.cargo/
 
 # Database & models
 *.db

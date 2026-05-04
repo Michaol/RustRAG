@@ -4,3 +4,4 @@ pub mod dictionary;
 pub mod languages;
 pub mod markdown;
 pub mod relations;
+pub mod text_parser;

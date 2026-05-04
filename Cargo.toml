@@ -1,6 +1,6 @@
 [package]
 name = "rustrag"
-version = "2.3.0"
+version = "2.4.0"
 edition = "2024"
 rust-version = "1.85"
 description = "High-performance local RAG MCP Server — indexes documents and code, serves context to AI assistants"
@@ -37,6 +37,14 @@ tree-sitter-javascript = "0.25"
 # Markdown
 pulldown-cmark = "0.13"
 regex = "1.10.3"
+
+# 文档格式解析
+lopdf = "0.34"
+docx-rs = "0.4"
+calamine = "0.26"
+scraper = "0.22"
+toml = "0.8"
+csv = "1"
 
 # 序列化
 serde = { version = "1.0", features = ["derive"] }
