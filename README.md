@@ -83,6 +83,8 @@ v1.3.7 introduced a native hot-reloading mechanism for configurations and model 
 
 </details>
 
+</details>
+
 ---
 
 ## Features
