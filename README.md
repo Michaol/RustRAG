@@ -24,10 +24,6 @@ v2.4.0 adds multi-format document support, expanding RustRAG from code-only inde
 
 ---
 
-<details>
-<summary><b>Expand to view History (v2.3.0 and prior)</b></summary>
-<br>
-
 ### v2.3.0 Security & Code Quality
 
 v2.3.0 is a security and code quality hardening release, addressing 26 issues found through systematic code review:
@@ -38,6 +34,8 @@ v2.3.0 is a security and code quality hardening release, addressing 26 issues fo
 - **Internationalization**: Language detection now recognizes Japanese (Hiragana/Katakana) and Korean (Hangul); YAML frontmatter properly escapes special characters.
 - **Performance**: ONNX thread count auto-detects via `available_parallelism()`; `LanguageConfig` cached with `LazyLock`; `build_dictionary` limits iteration to 100 documents by default.
 - **Code Quality**: Removed dead PHP code paths, fixed TOCTOU race in file watcher, added `// SAFETY:` documentation for unsafe blocks.
+
+---
 
 <details>
 <summary><b>Expand to view History (v2.2.0 and prior)</b></summary>
