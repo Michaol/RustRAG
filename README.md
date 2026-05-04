@@ -12,17 +12,23 @@ A high-performance local RAG (Retrieval-Augmented Generation) MCP Server written
 
 ---
 
-## Latest Release (v2.4.1)
+## Latest Release (v2.4.2)
+
+v2.4.2 fixes a bug in the background file watcher where ignored directories (like `target` or `node_modules`) were still being indexed during hot-reloads despite being listed in `exclude_patterns`.
+
+- **Watcher Exclude Patterns**: The file watcher now fully respects `exclude_patterns` using the `ignore` crate's `OverrideBuilder`, preventing unnecessary indexing of dynamically generated files.
+
+---
+
+<details>
+<summary><b>Expand to view History (v2.4.1 and prior)</b></summary>
+
+### v2.4.1 sqlite-vec Upgrade
 
 v2.4.1 is a maintenance release upgrading `sqlite-vec` from `0.1.7-alpha.10` to the stable `0.1.9` release, fixing a runtime error where the `vec_version()` function was not found on some platforms.
 
 - **Upgrade sqlite-vec to 0.1.9**: Resolves `no such function: vec_version` errors caused by the alpha pre-release build of the vector extension.
 - **Note**: If upgrading from v2.4.0 or earlier, delete the existing `vectors.db` file and restart to re-initialize the database schema.
-
----
-
-<details>
-<summary><b>Expand to view History (v2.4.0 and prior)</b></summary>
 
 ### v2.4.0 Multi-Format Document Support
 
