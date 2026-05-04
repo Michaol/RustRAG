@@ -222,10 +222,8 @@ fn extract_html(path: &Path) -> Result<String> {
 
     // Remove script and style content by selecting body
     let body_sel = scraper::Selector::parse("body").unwrap();
-    let block_sel = scraper::Selector::parse(
-        "p, h1, h2, h3, h4, h5, h6, li, td, th, pre, blockquote",
-    )
-    .unwrap();
+    let block_sel =
+        scraper::Selector::parse("p, h1, h2, h3, h4, h5, h6, li, td, th, pre, blockquote").unwrap();
 
     let body = document
         .select(&body_sel)
@@ -316,7 +314,7 @@ fn collect_docx_text(value: &serde_json::Value, texts: &mut Vec<String>) {
 // ── Spreadsheet ────────────────────────────────────────────────────
 
 fn extract_spreadsheet(path: &Path) -> Result<String> {
-    use calamine::{open_workbook_auto, Data, Reader};
+    use calamine::{Data, Reader, open_workbook_auto};
 
     let mut workbook = open_workbook_auto(path)?;
     let mut blocks = Vec::new();
@@ -418,9 +416,7 @@ serde = "1.0"
         let mut blocks = Vec::new();
         collect_toml_blocks(&value, &mut blocks, String::new());
         assert!(blocks.iter().any(|b| b.contains("package.name: test")));
-        assert!(blocks
-            .iter()
-            .any(|b| b.contains("dependencies.serde: 1.0")));
+        assert!(blocks.iter().any(|b| b.contains("dependencies.serde: 1.0")));
     }
 
     #[test]
@@ -457,10 +453,9 @@ serde = "1.0"
         </body></html>"#;
         let document = scraper::Html::parse_document(html);
         let body_sel = scraper::Selector::parse("body").unwrap();
-        let block_sel = scraper::Selector::parse(
-            "p, h1, h2, h3, h4, h5, h6, li, td, th, pre, blockquote",
-        )
-        .unwrap();
+        let block_sel =
+            scraper::Selector::parse("p, h1, h2, h3, h4, h5, h6, li, td, th, pre, blockquote")
+                .unwrap();
 
         let body = document.select(&body_sel).next().unwrap();
         let texts: Vec<String> = body

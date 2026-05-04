@@ -34,10 +34,8 @@ pub fn classify_extension(ext: &str) -> Option<FileType> {
     match ext {
         "md" => Some(FileType::Markdown),
         "rs" | "go" | "py" | "js" | "ts" | "jsx" | "tsx" => Some(FileType::Code),
-        "txt" | "log" | "json" | "yaml" | "yml" | "toml" | "csv"
-        | "html" | "htm" | "pdf" | "docx" | "xls" | "xlsx" | "xlsb" | "ods" => {
-            Some(FileType::Text)
-        }
+        "txt" | "log" | "json" | "yaml" | "yml" | "toml" | "csv" | "html" | "htm" | "pdf"
+        | "docx" | "xls" | "xlsx" | "xlsb" | "ods" => Some(FileType::Text),
         _ => None,
     }
 }
@@ -172,16 +170,14 @@ impl<'a, E: Embedder + ?Sized> Indexer<'a, E> {
                     Some(FileType::Markdown) => {
                         self.index_markdown(path, &path_str, mod_time).await.is_ok()
                     }
-                    Some(FileType::Code) => {
-                        self.index_code_file(path, &path_str, mod_time)
-                            .await
-                            .is_ok()
-                    }
-                    Some(FileType::Text) => {
-                        self.index_text_file(path, &path_str, mod_time)
-                            .await
-                            .is_ok()
-                    }
+                    Some(FileType::Code) => self
+                        .index_code_file(path, &path_str, mod_time)
+                        .await
+                        .is_ok(),
+                    Some(FileType::Text) => self
+                        .index_text_file(path, &path_str, mod_time)
+                        .await
+                        .is_ok(),
                     None => false,
                 };
 
@@ -239,16 +235,14 @@ impl<'a, E: Embedder + ?Sized> Indexer<'a, E> {
             Some(FileType::Markdown) => {
                 self.index_markdown(path, &path_str, mod_time).await.is_ok()
             }
-            Some(FileType::Code) => {
-                self.index_code_file(path, &path_str, mod_time)
-                    .await
-                    .is_ok()
-            }
-            Some(FileType::Text) => {
-                self.index_text_file(path, &path_str, mod_time)
-                    .await
-                    .is_ok()
-            }
+            Some(FileType::Code) => self
+                .index_code_file(path, &path_str, mod_time)
+                .await
+                .is_ok(),
+            Some(FileType::Text) => self
+                .index_text_file(path, &path_str, mod_time)
+                .await
+                .is_ok(),
             None => false,
         };
 
@@ -351,8 +345,7 @@ impl<'a, E: Embedder + ?Sized> Indexer<'a, E> {
         db_path: &str,
         mod_time: DateTime<Utc>,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        let chunks =
-            crate::indexer::text_parser::extract_and_chunk(real_path, self.chunk_size)?;
+        let chunks = crate::indexer::text_parser::extract_and_chunk(real_path, self.chunk_size)?;
         if chunks.is_empty() {
             return Ok(());
         }
