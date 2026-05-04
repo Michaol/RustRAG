@@ -15,14 +15,10 @@ use tracing::{info, warn};
 // The set of extensions the indexer can handle
 const SUPPORTED_EXTENSIONS: &[&str] = &[
     // 代码
-    "md", "rs", "go", "py", "js", "ts", "jsx", "tsx",
-    // 纯文本
-    "txt", "log",
-    // 结构化数据
-    "json", "yaml", "yml", "toml", "csv",
-    // HTML
-    "html", "htm",
-    // 二进制文档
+    "md", "rs", "go", "py", "js", "ts", "jsx", "tsx", // 纯文本
+    "txt", "log", // 结构化数据
+    "json", "yaml", "yml", "toml", "csv", // HTML
+    "html", "htm", // 二进制文档
     "pdf", "docx", "xls", "xlsx", "xlsb", "ods",
 ];
 
