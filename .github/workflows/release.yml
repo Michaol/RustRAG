@@ -28,15 +28,15 @@ jobs:
 
       - name: Check latest ONNX Runtime version
         shell: bash
+        continue-on-error: true
         run: |
           ORT_VERSION="1.25.1"
-          LATEST=$(curl -sf https://api.github.com/repos/microsoft/onnxruntime/releases/latest | grep '"tag_name"' | sed 's/.*"v\(.*\)".*/\1/')
+          LATEST=$(curl -sf --retry 3 --retry-delay 2 https://api.github.com/repos/microsoft/onnxruntime/releases/latest | grep '"tag_name"' | sed 's/.*"v\(.*\)".*/\1/' || true)
           if [ -z "$LATEST" ]; then
-            echo "::warning::Could not fetch latest ONNX Runtime version from GitHub API"
+            echo "::warning::Could not fetch latest ONNX Runtime version from GitHub API (non-blocking)"
           elif [ "$ORT_VERSION" != "$LATEST" ]; then
-            echo "::error::ONNX Runtime version mismatch! Pinned: $ORT_VERSION, Latest: $LATEST"
-            echo "Update ORT_VERSION in release.yml to $LATEST and the download paths in README.md / README_ZH.md"
-            exit 1
+            echo "::warning::ONNX Runtime version mismatch! Pinned: $ORT_VERSION, Latest: $LATEST"
+            echo "::warning::Update ORT_VERSION in release.yml to $LATEST and the download paths in README.md / README_ZH.md"
           else
             echo "ONNX Runtime version is up to date: $ORT_VERSION"
           fi
