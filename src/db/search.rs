@@ -45,6 +45,7 @@ const LIKE_ESCAPE: &str = " ESCAPE '\\'";
 
 fn map_search_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<SearchResult> {
     let distance: f64 = row.get(4)?;
+    // sqlite-vec cosine distance range is [0, 2] for INT8 vectors; map to [0, 1] similarity
     let similarity = 1.0 - (distance / 2.0);
 
     let symbol_type: Option<String> = row.get(6)?;
@@ -191,8 +192,15 @@ impl Db {
         let mut params: Vec<Value> = Vec::new();
 
         for kw in keywords {
+            if kw.len() < 3 {
+                continue;
+            }
             conditions.push("LOWER(cm.symbol_name) LIKE ?".to_string());
             params.push(Value::Text(format!("%{}%", kw.to_lowercase())));
+        }
+
+        if conditions.is_empty() {
+            return Ok(Vec::new());
         }
 
         query.push_str(&format!("({}) LIMIT ?", conditions.join(" OR ")));

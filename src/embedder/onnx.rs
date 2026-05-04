@@ -92,10 +92,15 @@ impl OnnxEmbedder {
                 "No requested execution provider is available and fallback_to_cpu is false".into(),
             ));
         }
+        let num_threads = std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(4)
+            .min(8);
+
         let session = builder
-            .with_intra_threads(4)
+            .with_intra_threads(num_threads)
             .map_err(|e| EmbedderError::ModelLoadFailed(format!("thread config error: {e}")))?
-            .with_inter_threads(4)
+            .with_inter_threads(num_threads)
             .map_err(|e| EmbedderError::ModelLoadFailed(format!("thread config error: {e}")))?
             .commit_from_file(&model_path)
             .map_err(|e| EmbedderError::ModelLoadFailed(format!("model load error: {e}")))?;

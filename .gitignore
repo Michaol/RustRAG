@@ -34,3 +34,7 @@ docs/
 
 # Claude Code
 .claude/
+.claw/
+
+# Backup files
+*.bak

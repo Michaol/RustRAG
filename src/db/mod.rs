@@ -95,6 +95,10 @@ static INIT_VEC: Once = Once::new();
 /// Initialize the sqlite-vec extension. Safe to call multiple times.
 fn init_sqlite_vec() {
     INIT_VEC.call_once(|| unsafe {
+        // SAFETY: `sqlite3_vec_init` has the same ABI signature as the sqlite3 auto-extension
+        // callback (`fn(*mut sqlite3, **mut c_char, *const sqlite3_api_routines) -> c_int`).
+        // The sqlite-vec crate guarantees this type matches when compiled against the same
+        // SQLite version. The transmute converts the function pointer to the expected type.
         #[allow(clippy::missing_transmute_annotations)]
         let func = std::mem::transmute(sqlite3_vec_init as *const ());
         rusqlite::ffi::sqlite3_auto_extension(Some(func));

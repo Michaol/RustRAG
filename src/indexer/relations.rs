@@ -95,6 +95,7 @@ impl RelationExtractor {
                 RelationType::Calls,
                 source_file,
                 source_symbol,
+                lang,
             ));
         }
         if let Some(query) = self.import_queries.get(lang) {
@@ -105,6 +106,7 @@ impl RelationExtractor {
                 RelationType::Imports,
                 source_file,
                 source_symbol,
+                lang,
             ));
         }
         if let Some(query) = self.inherit_queries.get(lang) {
@@ -115,12 +117,14 @@ impl RelationExtractor {
                 RelationType::Inherits,
                 source_file,
                 source_symbol,
+                lang,
             ));
         }
 
         Ok(relations)
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn extract_with_query(
         &self,
         root: Node,
@@ -129,6 +133,7 @@ impl RelationExtractor {
         rel_type: RelationType,
         source_file: &str,
         source_symbol: &str,
+        lang: &str,
     ) -> Vec<CodeRelation> {
         let mut cursor = QueryCursor::new();
         let mut relations = Vec::new();
@@ -146,7 +151,7 @@ impl RelationExtractor {
                         continue;
                     }
 
-                    if rel_type == RelationType::Calls {
+                    if rel_type == RelationType::Calls && lang == "go" {
                         let builtins = [
                             "len", "make", "append", "delete", "print", "println", "panic",
                             "recover", "range", "return", "break", "continue",

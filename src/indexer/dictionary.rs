@@ -182,8 +182,13 @@ pub fn is_chinese(s: &str) -> bool {
     })
 }
 
+/// Detect whether content is primarily CJK or English.
+/// Returns "zh", "ja", "ko", "en", "mixed", or "unknown".
+/// CJK detection covers Han ideographs (shared by zh/ja/ko), Hiragana, Katakana, and Hangul.
 pub fn detect_language(s: &str) -> &'static str {
-    let mut zh_count = 0;
+    let mut han_count = 0;
+    let mut ja_kana_count = 0;
+    let mut ko_hangul_count = 0;
     let mut en_count = 0;
     let mut total_count = 0;
 
@@ -191,8 +196,15 @@ pub fn detect_language(s: &str) -> &'static str {
         if c.is_alphabetic() {
             total_count += 1;
             let u = c as u32;
-            if (0x4E00..=0x9FFF).contains(&u) {
-                zh_count += 1;
+            if (0x4E00..=0x9FFF).contains(&u) || (0x3400..=0x4DBF).contains(&u) {
+                // CJK Unified Ideographs (shared by zh/ja/ko)
+                han_count += 1;
+            } else if (0x3040..=0x309F).contains(&u) || (0x30A0..=0x30FF).contains(&u) {
+                // Hiragana + Katakana (Japanese-specific)
+                ja_kana_count += 1;
+            } else if (0xAC00..=0xD7AF).contains(&u) {
+                // Hangul Syllables (Korean-specific)
+                ko_hangul_count += 1;
             } else if c.is_ascii_alphabetic() {
                 en_count += 1;
             }
@@ -203,10 +215,15 @@ pub fn detect_language(s: &str) -> &'static str {
         return "unknown";
     }
 
-    let zh_ratio = zh_count as f64 / total_count as f64;
+    let cjk_count = han_count + ja_kana_count + ko_hangul_count;
+    let cjk_ratio = cjk_count as f64 / total_count as f64;
     let en_ratio = en_count as f64 / total_count as f64;
 
-    if zh_ratio > 0.3 {
+    if ja_kana_count > han_count && ja_kana_count > ko_hangul_count && cjk_ratio > 0.1 {
+        "ja"
+    } else if ko_hangul_count > 0 && cjk_ratio > 0.1 {
+        "ko"
+    } else if cjk_ratio > 0.3 {
         "zh"
     } else if en_ratio > 0.8 {
         "en"

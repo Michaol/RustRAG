@@ -5,6 +5,9 @@
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
+/// The vector dimension required by the sqlite-vec schema (vec_chunks INT8[N]).
+const SCHEMA_VEC_DIMENSIONS: usize = 384;
+
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use tracing::{info, warn};
@@ -201,14 +204,8 @@ impl Config {
         };
 
         // Parse with defaults - use context for better error messages
-        let mut cfg: Config = match serde_json::from_str(&data) {
-            Ok(c) => c,
-            Err(e) => {
-                warn!("Invalid JSON in {path}: {e}");
-                warn!("Using default configuration");
-                return Ok(Self::default());
-            }
-        };
+        let mut cfg: Config = serde_json::from_str(&data)
+            .with_context(|| format!("invalid JSON in config file: {path}"))?;
 
         info!("Loaded configuration from {path}");
 
@@ -243,6 +240,12 @@ impl Config {
         anyhow::ensure!(
             self.model.dimensions > 0,
             "model.dimensions must be positive"
+        );
+        anyhow::ensure!(
+            self.model.dimensions == SCHEMA_VEC_DIMENSIONS,
+            "model.dimensions ({}) must match the sqlite-vec schema dimension ({})",
+            self.model.dimensions,
+            SCHEMA_VEC_DIMENSIONS
         );
         anyhow::ensure!(
             !self.document_patterns.is_empty(),

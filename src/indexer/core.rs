@@ -134,16 +134,15 @@ impl<'a, E: Embedder + ?Sized> Indexer<'a, E> {
             let mod_time: DateTime<Utc> = metadata.modified()?.into();
 
             let mut needs_indexing = true;
+            let mut was_update = false;
 
             if let Some(existing_time) = existing_docs.get(&path_str) {
                 if !force && mod_time.timestamp() == existing_time.timestamp() {
                     result.skipped += 1;
                     needs_indexing = false;
                 } else {
-                    result.updated += 1;
+                    was_update = true;
                 }
-            } else {
-                result.added += 1;
             }
 
             if needs_indexing {
@@ -157,13 +156,13 @@ impl<'a, E: Embedder + ?Sized> Indexer<'a, E> {
 
                 if success {
                     result.indexed += 1;
+                    if was_update {
+                        result.updated += 1;
+                    } else {
+                        result.added += 1;
+                    }
                 } else {
                     result.failed += 1;
-                    if result.updated > 0 {
-                        result.updated -= 1;
-                    } else if result.added > 0 {
-                        result.added -= 1;
-                    }
                 }
             }
         }

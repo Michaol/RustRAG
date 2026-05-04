@@ -95,8 +95,10 @@ struct SearchRelationsParams {
 struct BuildDictionaryParams {
     /// Source language (default: ja)
     source_lang: Option<String>,
-    /// Specific document path (all documents if omitted)
+    /// Specific document path (must be an indexed document)
     document: Option<String>,
+    /// Max number of documents to process when extracting from all (default: 100)
+    limit: Option<usize>,
 }
 
 // ── Response helpers ─────────────────────────────────────────────────
@@ -179,12 +181,6 @@ impl AppTools {
             ));
         }
         let top_k = p.top_k.unwrap_or(5);
-
-        let filter = SearchFilter {
-            directory: p.directory.as_deref(),
-            file_pattern: p.file_pattern.as_deref(),
-        };
-        let _has_filter = filter.directory.is_some() || filter.file_pattern.is_some();
 
         // Pre-clone context limits
         let embedder = self.ctx.get_embedder().await;
@@ -343,12 +339,10 @@ impl AppTools {
             // Canonicalize to resolve symlinks and validate
             let canonical_dir = match dir_path.canonicalize() {
                 Ok(path) => {
-                    // Basic security check: ensure path is absolute and within allowed boundaries
-                    let path_str = path.to_string_lossy().to_string();
-                    if !path_str.starts_with('/') {
-                        return error_result(&format!("Invalid directory path: {}", dir));
-                    }
-                    path_str
+                    let s = path.to_string_lossy();
+                    // Strip Windows UNC prefix (\\?\) for consistency with normalize_system_path
+                    let s = s.strip_prefix(r"\\?\").unwrap_or(&s);
+                    s.replace('\\', "/")
                 }
                 Err(e) => {
                     return error_result(&format!(
@@ -607,11 +601,30 @@ impl AppTools {
     ) -> Result<CallToolResult, McpError> {
         let p = params.0;
         let source_lang = p.source_lang.as_deref().unwrap_or("ja");
+        let limit = p.limit.unwrap_or(100);
 
         let extractor = DictionaryExtractor::new();
         let mut all_mappings: Vec<(String, String, String, f64, String)> = Vec::new();
 
         if let Some(doc_path) = &p.document {
+            // Validate the document is indexed before reading
+            let db = self.ctx.db.clone();
+            let doc_path_clone = doc_path.clone();
+            let is_indexed = tokio::task::spawn_blocking(move || {
+                db.list_documents()
+                    .map(|docs| docs.contains_key(&doc_path_clone))
+                    .unwrap_or(false)
+            })
+            .await
+            .unwrap_or(false);
+
+            if !is_indexed {
+                return Err(McpError::invalid_params(
+                    format!("document not found in index: {doc_path}"),
+                    None,
+                ));
+            }
+
             // Extract from a specific document
             let content = std::fs::read_to_string(doc_path).map_err(|e| {
                 McpError::invalid_params(format!("failed to read {doc_path}: {e}"), None)
@@ -636,7 +649,7 @@ impl AppTools {
                     McpError::internal_error(format!("list documents failed: {e}"), None)
                 })?;
 
-            for doc_path in docs.keys() {
+            for doc_path in docs.keys().take(limit) {
                 let content = match std::fs::read_to_string(doc_path) {
                     Ok(c) => c,
                     Err(_) => continue,

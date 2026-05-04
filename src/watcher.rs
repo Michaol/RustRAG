@@ -151,8 +151,8 @@ pub async fn start_watcher(ctx: McpContext) {
 
 async fn process_file_change(path: &Path, ctx: &McpContext) {
     let ext = path.extension().and_then(|s| s.to_str()).unwrap_or("");
-    let config_guard = ctx.config.read().await;
-    if !config_guard.is_file_extension_supported(ext) {
+    let config_snapshot = ctx.config.read().await.clone();
+    if !config_snapshot.is_file_extension_supported(ext) {
         return;
     }
 
@@ -174,7 +174,7 @@ async fn process_file_change(path: &Path, ctx: &McpContext) {
         ctx.db.clone(),
         embedder.as_ref(),
         ctx.chunk_size,
-        Arc::new(ctx.config.read().await.clone()),
+        Arc::new(config_snapshot),
     );
 
     match indexer.index_file(path).await {

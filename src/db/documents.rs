@@ -1,6 +1,6 @@
 use super::{Db, models::*, serialize_vector_int8};
 use chrono::{DateTime, Utc};
-use rusqlite::{OptionalExtension, Result, params};
+use rusqlite::{OptionalExtension, Result, ffi, params};
 use std::collections::HashMap;
 
 impl Db {
@@ -24,9 +24,9 @@ impl Db {
     }
 
     pub fn delete_documents_by_prefix(&self, prefix: &str) -> Result<usize> {
-        let conn = self.get_conn()?;
+        let mut conn = self.get_conn()?;
         let like_pattern = format!("{}%", prefix.replace("\\", "/"));
-        let tx = conn.unchecked_transaction()?;
+        let tx = conn.transaction()?;
         tx.execute(
             "DELETE FROM vec_chunks WHERE rowid IN (SELECT c.id FROM chunks c JOIN documents d ON c.document_id = d.id WHERE d.filename LIKE ?)",
             params![like_pattern],
@@ -105,11 +105,16 @@ impl Db {
         embeddings: &[Vec<f32>],
     ) -> Result<()> {
         let mut conn = self.get_conn()?;
-        assert_eq!(
-            chunks.len(),
-            embeddings.len(),
-            "chunks and embeddings length mismatch"
-        );
+        if chunks.len() != embeddings.len() {
+            return Err(rusqlite::Error::SqliteFailure(
+                ffi::Error::new(ffi::SQLITE_MISUSE),
+                Some(format!(
+                    "chunks ({}) and embeddings ({}) length mismatch",
+                    chunks.len(),
+                    embeddings.len()
+                )),
+            ));
+        }
 
         let tx = conn.transaction()?;
         upsert_document_and_insert_chunks(&tx, filename, modified_at, chunks, embeddings)?;
@@ -157,11 +162,16 @@ impl Db {
         embeddings: &[Vec<f32>],
     ) -> Result<()> {
         let mut conn = self.get_conn()?;
-        assert_eq!(
-            chunks.len(),
-            embeddings.len(),
-            "chunks and embeddings length mismatch"
-        );
+        if chunks.len() != embeddings.len() {
+            return Err(rusqlite::Error::SqliteFailure(
+                ffi::Error::new(ffi::SQLITE_MISUSE),
+                Some(format!(
+                    "chunks ({}) and embeddings ({}) length mismatch",
+                    chunks.len(),
+                    embeddings.len()
+                )),
+            ));
+        }
 
         // Convert CodeChunks to plain Chunks for the shared base
         let plain_chunks: Vec<Chunk<'_>> = chunks

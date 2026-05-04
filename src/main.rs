@@ -81,11 +81,23 @@ async fn main() -> Result<()> {
     let model_dir = default_model_dir();
     if !cli.skip_download {
         tracing::info!("Checking model files...");
-        if let Err(e) = rustrag::embedder::download::download_model_files(&model_dir) {
-            tracing::warn!("Model download failed: {e}");
-            tracing::warn!("Will use mock embedder as fallback");
-        } else {
-            rustrag::embedder::download::cleanup_legacy_model(&model_dir);
+        let model_dir_clone = model_dir.clone();
+        let download_result = tokio::task::spawn_blocking(move || {
+            rustrag::embedder::download::download_model_files(&model_dir_clone)
+        })
+        .await;
+        match download_result {
+            Ok(Ok(())) => {
+                rustrag::embedder::download::cleanup_legacy_model(&model_dir);
+            }
+            Ok(Err(e)) => {
+                tracing::warn!("Model download failed: {e}");
+                tracing::warn!("Will use mock embedder as fallback");
+            }
+            Err(e) => {
+                tracing::warn!("Model download task failed: {e}");
+                tracing::warn!("Will use mock embedder as fallback");
+            }
         }
     } else {
         tracing::info!("Model download skipped (--skip-download)");

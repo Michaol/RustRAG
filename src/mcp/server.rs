@@ -193,7 +193,7 @@ impl McpServer {
 
         let app = axum::Router::new().fallback_service(service);
 
-        let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{}", port)).await?;
+        let listener = tokio::net::TcpListener::bind(format!("127.0.0.1:{}", port)).await?;
 
         tokio::select! {
             res = axum::serve(listener, app).into_future() => {

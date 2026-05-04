@@ -206,7 +206,8 @@ fn parse_version(version: &str) -> Result<Vec<u32>> {
 
 fn get_cache_path(cache_dir: &str) -> Result<PathBuf> {
     let dir = if cache_dir.is_empty() {
-        dirs::home_dir()
+        dirs::cache_dir()
+            .or_else(dirs::home_dir)
             .map(|d| d.to_string_lossy().to_string())
             .unwrap_or_else(|| ".".to_string())
     } else {
