@@ -10,7 +10,7 @@
 /// 7. build_dictionary – build multilingual word dictionary
 use crate::db::search::SearchFilter;
 use crate::frontmatter;
-use crate::indexer::core::Indexer;
+use crate::indexer::core::{FileType, Indexer, classify_extension};
 use crate::indexer::{
     code_parser::CodeParser,
     dictionary::{self, DictionaryExtractor},
@@ -724,15 +724,7 @@ fn build_frontmatter_metadata(p: &FrontmatterParams) -> frontmatter::Metadata {
     }
 }
 
-/// Returns true if the file extension indicates a markdown file.
-fn is_markdown(path: &Path) -> bool {
-    path.extension()
-        .and_then(|e| e.to_str())
-        .map(|e| e == "md")
-        .unwrap_or(false)
-}
-
-/// Index a single file — auto-detects markdown vs code by extension.
+/// Index a single file — auto-detects type by extension.
 async fn index_single_file(
     path: &Path,
     filepath: &str,
@@ -745,15 +737,26 @@ async fn index_single_file(
         ));
     }
 
-    if is_markdown(path) {
-        index_single_markdown_file(path, filepath, ctx).await
-    } else {
-        index_single_code_file(path, filepath, ctx).await?;
-        json_result(serde_json::json!({
-            "success": true,
-            "message": "Code file indexed successfully",
-            "file": filepath,
-        }))
+    let ext = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or_default();
+
+    match classify_extension(ext) {
+        Some(FileType::Markdown) => index_single_markdown_file(path, filepath, ctx).await,
+        Some(FileType::Code) => {
+            index_single_code_file(path, filepath, ctx).await?;
+            json_result(serde_json::json!({
+                "success": true,
+                "message": "Code file indexed successfully",
+                "file": filepath,
+            }))
+        }
+        Some(FileType::Text) => index_single_text_file(path, filepath, ctx).await,
+        None => Err(McpError::invalid_params(
+            format!("unsupported file type: .{ext}"),
+            None,
+        )),
     }
 }
 
@@ -863,4 +866,53 @@ async fn index_single_code_file(
     .map_err(|e| McpError::internal_error(format!("blocking task failed: {e}"), None))??;
 
     Ok(())
+}
+
+/// Index a single text/structured/document file.
+async fn index_single_text_file(
+    path: &Path,
+    filepath: &str,
+    ctx: &McpContext,
+) -> Result<CallToolResult, McpError> {
+    let chunks = crate::indexer::text_parser::extract_and_chunk(path, ctx.chunk_size)
+        .map_err(|e| McpError::invalid_params(format!("parse failed: {e}"), None))?;
+
+    if chunks.is_empty() {
+        return json_result(serde_json::json!({
+            "success": true,
+            "message": "File is empty, nothing to index",
+        }));
+    }
+
+    let embedder = ctx.get_embedder().await;
+    let db_path = filepath.replace('\\', "/");
+    let db = ctx.db.clone();
+
+    tokio::task::spawn_blocking(move || {
+        let text_refs: Vec<&str> = chunks.iter().map(|c| c.content.as_str()).collect();
+        let vectors = embedder
+            .embed_batch(&text_refs)
+            .map_err(|e| McpError::invalid_request(format!("embedding failed: {e}"), None))?;
+
+        let db_chunks: Vec<crate::db::models::Chunk> = chunks
+            .iter()
+            .map(|c| crate::db::models::Chunk {
+                position: c.position,
+                content: c.content.as_str(),
+            })
+            .collect();
+
+        db.insert_document(&db_path, chrono::Utc::now(), &db_chunks, &vectors)
+            .map_err(|e| McpError::internal_error(format!("DB insert failed: {e}"), None))?;
+
+        Ok::<_, McpError>(())
+    })
+    .await
+    .map_err(|e| McpError::internal_error(format!("blocking task failed: {e}"), None))??;
+
+    json_result(serde_json::json!({
+        "success": true,
+        "message": "Text file indexed successfully",
+        "file": filepath,
+    }))
 }

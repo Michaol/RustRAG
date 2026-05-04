@@ -20,6 +20,28 @@ pub fn normalize_system_path(path: &Path) -> String {
     s.replace('\\', "/")
 }
 
+/// File type classification for routing to the appropriate indexer.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum FileType {
+    Markdown,
+    Code,
+    Text,
+}
+
+/// Classify a file extension into a FileType for routing.
+/// Returns `None` for unsupported extensions.
+pub fn classify_extension(ext: &str) -> Option<FileType> {
+    match ext {
+        "md" => Some(FileType::Markdown),
+        "rs" | "go" | "py" | "js" | "ts" | "jsx" | "tsx" => Some(FileType::Code),
+        "txt" | "log" | "json" | "yaml" | "yml" | "toml" | "csv"
+        | "html" | "htm" | "pdf" | "docx" | "xls" | "xlsx" | "xlsb" | "ods" => {
+            Some(FileType::Text)
+        }
+        _ => None,
+    }
+}
+
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct CodeSyncResult {
     pub indexed: usize,
@@ -146,12 +168,21 @@ impl<'a, E: Embedder + ?Sized> Indexer<'a, E> {
             }
 
             if needs_indexing {
-                let success = if ext == "md" {
-                    self.index_markdown(path, &path_str, mod_time).await.is_ok()
-                } else {
-                    self.index_code_file(path, &path_str, mod_time)
-                        .await
-                        .is_ok()
+                let success = match classify_extension(ext) {
+                    Some(FileType::Markdown) => {
+                        self.index_markdown(path, &path_str, mod_time).await.is_ok()
+                    }
+                    Some(FileType::Code) => {
+                        self.index_code_file(path, &path_str, mod_time)
+                            .await
+                            .is_ok()
+                    }
+                    Some(FileType::Text) => {
+                        self.index_text_file(path, &path_str, mod_time)
+                            .await
+                            .is_ok()
+                    }
+                    None => false,
                 };
 
                 if success {
@@ -204,12 +235,21 @@ impl<'a, E: Embedder + ?Sized> Indexer<'a, E> {
         };
         let path_str = normalize_system_path(path);
 
-        let success = if ext == "md" {
-            self.index_markdown(path, &path_str, mod_time).await.is_ok()
-        } else {
-            self.index_code_file(path, &path_str, mod_time)
-                .await
-                .is_ok()
+        let success = match classify_extension(ext) {
+            Some(FileType::Markdown) => {
+                self.index_markdown(path, &path_str, mod_time).await.is_ok()
+            }
+            Some(FileType::Code) => {
+                self.index_code_file(path, &path_str, mod_time)
+                    .await
+                    .is_ok()
+            }
+            Some(FileType::Text) => {
+                self.index_text_file(path, &path_str, mod_time)
+                    .await
+                    .is_ok()
+            }
+            None => false,
         };
 
         Ok(success)
@@ -298,6 +338,39 @@ impl<'a, E: Embedder + ?Sized> Indexer<'a, E> {
         {
             let db_guard = self.db.clone();
             db_guard.insert_code_document(db_path, mod_time, &db_chunks, &vectors)?;
+        }
+
+        Ok(())
+    }
+
+    /// Index a text/structured/document file.
+    /// Extracts text using format-specific logic, chunks it, embeds, and stores.
+    async fn index_text_file(
+        &self,
+        real_path: &Path,
+        db_path: &str,
+        mod_time: DateTime<Utc>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let chunks =
+            crate::indexer::text_parser::extract_and_chunk(real_path, self.chunk_size)?;
+        if chunks.is_empty() {
+            return Ok(());
+        }
+
+        let text_refs: Vec<&str> = chunks.iter().map(|c| c.content.as_str()).collect();
+        let vectors = self.embedder.embed_batch(&text_refs)?;
+
+        let db_chunks: Vec<crate::db::models::Chunk> = chunks
+            .iter()
+            .map(|c| crate::db::models::Chunk {
+                position: c.position,
+                content: c.content.as_str(),
+            })
+            .collect();
+
+        {
+            let db_guard = self.db.clone();
+            db_guard.insert_document(db_path, mod_time, &db_chunks, &vectors)?;
         }
 
         Ok(())
