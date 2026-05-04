@@ -12,17 +12,23 @@ RustRAG 是一个使用 Rust 编写的高性能、纯本地的检索增强生成
 
 ---
 
-## 最新版本发布 (v2.4.1)
+## 最新版本发布 (v2.4.2)
+
+v2.4.2 修复了后台文件监听器的一个 Bug：在热重载期间，即使用户在 `exclude_patterns` 中配置了如 `target` 或 `node_modules` 等忽略目录，这些目录内生成的文件仍会被意外索引。
+
+- **监听器过滤增强**：文件监听器现已全面接管并应用 `exclude_patterns` 规则（底层结合 `ignore::OverrideBuilder`），彻底阻止了动态生成的编译产物被错误索引。
+
+---
+
+<details>
+<summary><b>展开查看历史演进 (v2.4.1 及更早版本)</b></summary>
+
+### v2.4.1 sqlite-vec 升级
 
 v2.4.1 为维护版本，将 `sqlite-vec` 从 `0.1.7-alpha.10` 升级至稳定版 `0.1.9`，修复了部分平台上 `vec_version()` 函数未找到的运行时错误。
 
 - **升级 sqlite-vec 至 0.1.9**：解决 alpha 预发布版本在部分平台下 `no such function: vec_version` 的报错。
 - **注意**：若从 v2.4.0 或更早版本升级，请删除已有的 `vectors.db` 文件并重启，以重新初始化数据库 schema。
-
----
-
-<details>
-<summary><b>展开查看历史演进 (v2.4.0 及更早版本)</b></summary>
 
 ### v2.4.0 多格式文档支持
 

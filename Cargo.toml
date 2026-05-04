@@ -1,6 +1,6 @@
 [package]
 name = "rustrag"
-version = "2.4.1"
+version = "2.4.2"
 edition = "2024"
 rust-version = "1.85"
 description = "High-performance local RAG MCP Server — indexes documents and code, serves context to AI assistants"
@@ -73,6 +73,7 @@ schemars = "1"
 ignore = "0.4.25"
 tree-sitter-rust = "0.24.0"
 dirs = "5"
+globset = "0.4.18"
 
 [profile.release]
 lto = true

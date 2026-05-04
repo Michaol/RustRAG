@@ -2822,7 +2822,7 @@ dependencies = [
 
 [[package]]
 name = "rustrag"
-version = "2.4.1"
+version = "2.4.2"
 dependencies = [
  "anyhow",
  "axum",
@@ -2834,6 +2834,7 @@ dependencies = [
  "dirs",
  "docx-rs",
  "glob",
+ "globset",
  "ignore",
  "indicatif 0.17.11",
  "lopdf",

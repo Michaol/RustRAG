@@ -1,4 +1,4 @@
-use crate::indexer::core::{Indexer, normalize_system_path};
+use crate::indexer::core::Indexer;
 use crate::mcp::server::McpContext;
 use notify::{EventKind, RecursiveMode, Watcher};
 use std::path::{Path, PathBuf};
@@ -156,11 +156,46 @@ async fn process_file_change(path: &Path, ctx: &McpContext) {
         return;
     }
 
-    let db_path = normalize_system_path(path);
+    // Check if the path is ignored by exclude_patterns
+    let base_dirs = config_snapshot.get_base_directories();
+    let mut matching_base = None;
+    for dir in &base_dirs {
+        if path.starts_with(dir) {
+            matching_base = Some(dir.as_path());
+            break;
+        }
+    }
+
+    if let Some(base_dir) = matching_base {
+        let mut overrides = ignore::overrides::OverrideBuilder::new(base_dir);
+        for pattern in &config_snapshot.exclude_patterns {
+            let _ = overrides.add(&format!("!{}", pattern));
+        }
+        if let Ok(matcher) = overrides.build() {
+            let mut current = path;
+            loop {
+                // The exact path is a file (since we only receive file events here), parents are dirs.
+                let is_dir = current != path;
+                if matcher.matched(current, is_dir).is_ignore() {
+                    return; // Ignored by exclude_patterns
+                }
+                if current == base_dir {
+                    break;
+                }
+                if let Some(parent) = current.parent() {
+                    current = parent;
+                } else {
+                    break;
+                }
+            }
+        }
+    }
+
+    let db_path = crate::indexer::core::normalize_system_path(path);
 
     if !path.exists() {
         // File was removed
-        info!("File removed, deleting from index: {}", db_path);
+        tracing::info!("File removed, deleting from index: {}", db_path);
         let db = ctx.db.clone();
         let _ = db.delete_document(&db_path);
         return;
