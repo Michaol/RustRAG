@@ -12,7 +12,19 @@ A high-performance local RAG (Retrieval-Augmented Generation) MCP Server written
 
 ---
 
-## Latest Release (v2.4.0)
+## Latest Release (v2.4.1)
+
+v2.4.1 is a maintenance release upgrading `sqlite-vec` from `0.1.7-alpha.10` to the stable `0.1.9` release, fixing a runtime error where the `vec_version()` function was not found on some platforms.
+
+- **Upgrade sqlite-vec to 0.1.9**: Resolves `no such function: vec_version` errors caused by the alpha pre-release build of the vector extension.
+- **Note**: If upgrading from v2.4.0 or earlier, delete the existing `vectors.db` file and restart to re-initialize the database schema.
+
+---
+
+<details>
+<summary><b>Expand to view History (v2.4.0 and prior)</b></summary>
+
+### v2.4.0 Multi-Format Document Support
 
 v2.4.0 adds multi-format document support, expanding RustRAG from code-only indexing to a universal document RAG engine:
 
@@ -21,11 +33,6 @@ v2.4.0 adds multi-format document support, expanding RustRAG from code-only inde
 - **Configurable Extensions**: All 24 supported file types are enabled by default in `config.json`. Users can remove extensions to filter unwanted formats. Config hot-reload is fully supported.
 - **New Dependencies** (all pure Rust, no C bindings): `lopdf` (PDF), `docx-rs` (DOCX), `calamine` (XLS/XLSX/ODS), `scraper` (HTML), `toml`, `csv`.
 - **Also**: Added `.jsx`/`.tsx` to supported code extensions (Tree-sitter already supported them).
-
----
-
-<details>
-<summary><b>Expand to view History (v2.3.0 and prior)</b></summary>
 <br>
 
 ### v2.3.0 Security & Code Quality
