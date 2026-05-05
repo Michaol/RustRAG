@@ -12,16 +12,23 @@ RustRAG 是一个使用 Rust 编写的高性能、纯本地的检索增强生成
 
 ---
 
-## 最新版本发布 (v2.4.2)
+## 最新版本发布 (v2.4.3)
 
-v2.4.2 修复了后台文件监听器的一个 Bug：在热重载期间，即使用户在 `exclude_patterns` 中配置了如 `target` 或 `node_modules` 等忽略目录，这些目录内生成的文件仍会被意外索引。
+v2.4.3 修复了 sqlite-vec 自动扩展注册顺序问题 —— 将 `sqlite3_auto_extension` 调用移至 `Connection::open()` **之前**，确保 r2d2 连接池中每个连接都正确加载 sqlite-vec 扩展。
 
-- **监听器过滤增强**：文件监听器现已全面接管并应用 `exclude_patterns` 规则（底层结合 `ignore::OverrideBuilder`），彻底阻止了动态生成的编译产物被错误索引。
+- **修复 sqlite-vec 初始化顺序**：SQLite 自动扩展仅对注册**之后**创建的连接生效，原实现导致首个连接缺少扩展函数（`vec_version` 找不到）。
+- **注意**：需搭配 v2.4.1+（`sqlite-vec 0.1.9`）使用。
 
 ---
 
 <details>
-<summary><b>展开查看历史演进 (v2.4.1 及更早版本)</b></summary>
+<summary><b>展开查看历史演进 (v2.4.2 及更早版本)</b></summary>
+
+### v2.4.2 文件监听器修复
+
+v2.4.2 修复了后台文件监听器的一个 Bug：在热重载期间，即使用户在 `exclude_patterns` 中配置了如 `target` 或 `node_modules` 等忽略目录，这些目录内生成的文件仍会被意外索引。
+
+- **监听器过滤增强**：文件监听器现已全面接管并应用 `exclude_patterns` 规则（底层结合 `ignore::OverrideBuilder`），彻底阻止了动态生成的编译产物被错误索引。
 
 ### v2.4.1 sqlite-vec 升级
 
