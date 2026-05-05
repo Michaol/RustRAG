@@ -12,16 +12,23 @@ A high-performance local RAG (Retrieval-Augmented Generation) MCP Server written
 
 ---
 
-## Latest Release (v2.4.2)
+## Latest Release (v2.4.3)
 
-v2.4.2 fixes a bug in the background file watcher where ignored directories (like `target` or `node_modules`) were still being indexed during hot-reloads despite being listed in `exclude_patterns`.
+v2.4.3 fixes the sqlite-vec auto-extension registration order — `sqlite3_auto_extension` is now called **before** `Connection::open()`, ensuring the extension is loaded on every connection in the r2d2 pool.
 
-- **Watcher Exclude Patterns**: The file watcher now fully respects `exclude_patterns` using the `ignore` crate's `OverrideBuilder`, preventing unnecessary indexing of dynamically generated files.
+- **Fix sqlite-vec init order**: Auto-extension must be registered before the connection is opened; SQLite only applies auto-extensions to connections created after registration.
+- **Note**: Requires v2.4.1+ (`sqlite-vec 0.1.9`).
 
 ---
 
 <details>
-<summary><b>Expand to view History (v2.4.1 and prior)</b></summary>
+<summary><b>Expand to view History (v2.4.2 and prior)</b></summary>
+
+### v2.4.2 File Watcher Fix
+
+v2.4.2 fixes a bug in the background file watcher where ignored directories (like `target` or `node_modules`) were still being indexed during hot-reloads despite being listed in `exclude_patterns`.
+
+- **Watcher Exclude Patterns**: The file watcher now fully respects `exclude_patterns` using the `ignore` crate's `OverrideBuilder`, preventing unnecessary indexing of dynamically generated files.
 
 ### v2.4.1 sqlite-vec Upgrade
 
