@@ -92,13 +92,14 @@ CREATE INDEX IF NOT EXISTS idx_word_lang ON word_mapping(source_lang);
 
 static INIT_VEC: Once = Once::new();
 
-/// Initialize the sqlite-vec extension. Safe to call multiple times.
+/// Register sqlite-vec as a SQLite auto-extension. Must be called BEFORE any
+/// `Connection::open()` — SQLite only applies auto-extensions to connections
+/// created after registration.
 fn init_sqlite_vec() {
     INIT_VEC.call_once(|| unsafe {
-        // SAFETY: `sqlite3_vec_init` has the same ABI signature as the sqlite3 auto-extension
-        // callback (`fn(*mut sqlite3, **mut c_char, *const sqlite3_api_routines) -> c_int`).
-        // The sqlite-vec crate guarantees this type matches when compiled against the same
-        // SQLite version. The transmute converts the function pointer to the expected type.
+        // SAFETY: `sqlite3_vec_init` has the sqlite3 auto-extension entry-point
+        // signature (`fn(db, err, api)`). The transmute converts the extern "C"
+        // function pointer to the exact type `sqlite3_auto_extension` expects.
         #[allow(clippy::missing_transmute_annotations)]
         let func = std::mem::transmute(sqlite3_vec_init as *const ());
         rusqlite::ffi::sqlite3_auto_extension(Some(func));
@@ -117,17 +118,21 @@ impl ManageConnection for SqliteManager {
     type Error = rusqlite::Error;
 
     fn connect(&self) -> std::result::Result<Self::Connection, Self::Error> {
+        // Register sqlite-vec BEFORE opening the connection so the auto-extension
+        // is applied when SQLite creates the database handle.
+        init_sqlite_vec();
         let conn = if let Some(p) = &self.path {
             Connection::open(p)?
         } else {
             Connection::open_in_memory()?
         };
-        init_sqlite_vec();
+
         conn.execute_batch(
             "PRAGMA foreign_keys = ON;
              PRAGMA journal_mode = WAL;
              PRAGMA synchronous = NORMAL;",
         )?;
+
         // Verification
         let vec_version: String = conn.query_row("SELECT vec_version()", [], |row| row.get(0))?;
         info!("sqlite-vec version: {}", vec_version);
