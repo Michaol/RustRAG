@@ -31,7 +31,7 @@ CREATE TABLE IF NOT EXISTS chunks (
 CREATE INDEX IF NOT EXISTS idx_document_id ON chunks(document_id);
 
 CREATE VIRTUAL TABLE IF NOT EXISTS vec_chunks USING vec0(
-    embedding INT8[384]
+    embedding float32[1024]
 );
 
 CREATE TABLE IF NOT EXISTS code_metadata (
@@ -227,14 +227,11 @@ impl Db {
     }
 }
 
-/// Helper to serialize a float32 vector into a scalar-quantized int8 vector blob
-pub fn serialize_vector_int8(vec: &[f32]) -> Vec<u8> {
-    let mut bytes = Vec::with_capacity(vec.len());
+/// Helper to serialize a float32 vector into a raw byte blob for sqlite-vec.
+pub fn serialize_vector_f32(vec: &[f32]) -> Vec<u8> {
+    let mut bytes = Vec::with_capacity(vec.len() * 4);
     for &v in vec {
-        // Clamp to [-1.0, 1.0] and scale to [-127, 127]
-        let clamped = v.clamp(-1.0, 1.0);
-        let q = (clamped * 127.0).round() as i8;
-        bytes.push(q as u8); // Store purely as 1-byte
+        bytes.extend_from_slice(&v.to_le_bytes());
     }
     bytes
 }
@@ -260,24 +257,16 @@ mod tests {
     }
 
     #[test]
-    fn test_serialize_vector_int8() {
-        // Some boundary float variables
-        let vec = vec![1.0, 0.0, -1.0, 0.5, -0.5, 2.0, -2.0];
-        let bytes = serialize_vector_int8(&vec);
-        assert_eq!(bytes.len(), 7); // Should be exactly 1 byte per dimension
-
-        // 1.0 -> 127
-        assert_eq!(bytes[0], 127);
-        // 0.0 -> 0
-        assert_eq!(bytes[1], 0);
-        // -1.0 -> -127 (which is 129 in 2's complement u8 representation, technically 256 - 127 = 129, actually -127 as i8 is 129 in u8)
-        assert_eq!(bytes[2], 129);
-        // 0.5 -> 64
-        assert_eq!(bytes[3], 64);
-        // -0.5 -> -64 (which is 192)
-        assert_eq!(bytes[4], 192);
-        // Out of bounds checking (clamped to 1.0 and -1.0)
-        assert_eq!(bytes[5], 127);
-        assert_eq!(bytes[6], 129);
+    fn test_serialize_vector_f32() {
+        let vec = vec![1.0f32, 0.0, -1.0];
+        let bytes = serialize_vector_f32(&vec);
+        // 3 floats × 4 bytes each = 12 bytes
+        assert_eq!(bytes.len(), 12);
+        // Verify first float (1.0) in little-endian
+        assert_eq!(&bytes[0..4], &1.0f32.to_le_bytes());
+        // Verify second float (0.0)
+        assert_eq!(&bytes[4..8], &0.0f32.to_le_bytes());
+        // Verify third float (-1.0)
+        assert_eq!(&bytes[8..12], &(-1.0f32).to_le_bytes());
     }
 }

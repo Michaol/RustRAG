@@ -1,35 +1,21 @@
 use anyhow::{Context, Result};
+use rustrag::config::Config;
 use rustrag::db::Db;
 use rustrag::embedder::Embedder;
-use rustrag::embedder::download::default_model_dir;
-use rustrag::embedder::onnx::OnnxEmbedder;
-use std::path::Path;
+use rustrag::embedder::api::ApiEmbedder;
 
 fn main() -> Result<()> {
-    let db_path = "./vectors.db";
-    let model_path = default_model_dir();
+    // Load config
+    let config = Config::load("config.json").context("Failed to load config")?;
+    config.validate().context("Invalid configuration")?;
 
-    // Validate paths before use
-    let db_path = match std::fs::canonicalize(db_path) {
-        Ok(path) => path.to_string_lossy().to_string(),
-        Err(e) => {
-            eprintln!("Failed to resolve database path: {}", e);
-            std::process::exit(1);
-        }
-    };
+    // Open database
+    let db = Db::open(&config.db_path)
+        .map_err(|e| anyhow::anyhow!("Failed to open database: {}", e))?;
 
-    let model_path = match std::fs::canonicalize(&model_path) {
-        Ok(path) => path.to_string_lossy().to_string(),
-        Err(e) => {
-            eprintln!("Failed to resolve model path: {}", e);
-            std::process::exit(1);
-        }
-    };
-
-    // Use proper error handling instead of expect()
-    let db = Db::open(&db_path).with_context(|| format!("Failed to open database: {}", db_path))?;
-    let embedder = OnnxEmbedder::new(Path::new(&model_path), 32, 384, "auto", true)
-        .with_context(|| "Failed to load ONNX model")?;
+    // Create API embedder
+    let embedder = ApiEmbedder::new(&config.embedding)
+        .map_err(|e| anyhow::anyhow!("Failed to create embedder: {e}"))?;
 
     let queries = vec![
         "Passwall intermittent DNS resolution failures, NFTSET troubleshooting",
@@ -38,13 +24,13 @@ fn main() -> Result<()> {
 
     for query in queries {
         println!("==============================================");
-        println!("Query: {}", query);
+        println!("Query: {query}");
         let emb = embedder
             .embed(query)
-            .with_context(|| format!("Failed to embed query: {}", query))?;
+            .map_err(|e| anyhow::anyhow!("Failed to embed query: {e}"))?;
         let results = db
             .search(&emb, 3)
-            .with_context(|| "Failed to search database")?;
+            .map_err(|e| anyhow::anyhow!("Failed to search database: {e}"))?;
 
         for (i, r) in results.iter().enumerate() {
             let preview = r
@@ -59,7 +45,7 @@ fn main() -> Result<()> {
                 r.similarity,
                 r.document_name
             );
-            println!("       -> {}", preview);
+            println!("       -> {preview}");
         }
     }
 

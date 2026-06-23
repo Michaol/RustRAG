@@ -271,7 +271,7 @@ mod tests {
             parent_symbol: None,
             signature: Some("fn main()"),
         }];
-        let embeddings = vec![vec![0.1f32; 384]];
+        let embeddings = vec![vec![0.1f32; 1024]];
         db.insert_code_document("main.rs", Utc::now(), &code_chunks, &embeddings)
             .unwrap();
 

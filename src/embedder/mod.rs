@@ -1,10 +1,6 @@
-pub mod download;
 /// Embedder trait and shared types for text embedding.
-///
-/// Mirrors the Go version's `internal/embedder/embedder.go`.
+pub mod api;
 pub mod mock;
-pub mod onnx;
-pub mod tokenizer;
 
 use thiserror::Error;
 
@@ -16,9 +12,6 @@ pub enum EmbedderError {
 
     #[error("model load failed: {0}")]
     ModelLoadFailed(String),
-
-    #[error("tokenizer error: {0}")]
-    TokenizerError(String),
 }
 
 /// Trait for text embedding implementations.

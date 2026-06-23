@@ -1,4 +1,4 @@
-use super::{Db, models::*, serialize_vector_int8};
+use super::{Db, models::*, serialize_vector_f32};
 use chrono::{DateTime, Utc};
 use rusqlite::{OptionalExtension, Result, ffi, params};
 use std::collections::HashMap;
@@ -253,9 +253,9 @@ fn upsert_document_and_insert_chunks(
         let chunk_id = tx.last_insert_rowid();
         chunk_ids.push(chunk_id);
 
-        let vector_blob = serialize_vector_int8(&embeddings[i]);
+        let vector_blob = serialize_vector_f32(&embeddings[i]);
         tx.execute(
-            "INSERT INTO vec_chunks (rowid, embedding) VALUES (?, vec_int8(?))",
+            "INSERT INTO vec_chunks (rowid, embedding) VALUES (?, ?)",
             params![chunk_id, vector_blob],
         )?;
     }
@@ -284,7 +284,7 @@ mod tests {
                 content: "World",
             },
         ];
-        let embeddings = vec![vec![0.1; 384], vec![0.2; 384]];
+        let embeddings = vec![vec![0.1; 1024], vec![0.2; 1024]];
 
         db.insert_document(filename, now, &chunks, &embeddings)
             .unwrap();
@@ -314,7 +314,7 @@ mod tests {
             position: 0,
             content: "Replaced",
         }];
-        let new_embeddings = vec![vec![0.5; 384]];
+        let new_embeddings = vec![vec![0.5; 1024]];
         db.insert_document(filename, Utc::now(), &new_chunks, &new_embeddings)
             .unwrap();
 
@@ -365,7 +365,7 @@ mod tests {
                 position: 0,
                 content: "A",
             }],
-            &[vec![0.1; 384]],
+            &[vec![0.1; 1024]],
         )
         .unwrap();
         db.insert_document(
@@ -375,7 +375,7 @@ mod tests {
                 position: 0,
                 content: "B",
             }],
-            &[vec![0.2; 384]],
+            &[vec![0.2; 1024]],
         )
         .unwrap();
         db.insert_document(
@@ -385,7 +385,7 @@ mod tests {
                 position: 0,
                 content: "C",
             }],
-            &[vec![0.3; 384]],
+            &[vec![0.3; 1024]],
         )
         .unwrap();
 

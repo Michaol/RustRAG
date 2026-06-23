@@ -1,4 +1,4 @@
-use super::{Db, serialize_vector_int8};
+use super::{Db, serialize_vector_f32};
 use rusqlite::Result;
 use rusqlite::types::Value;
 
@@ -45,7 +45,7 @@ const LIKE_ESCAPE: &str = " ESCAPE '\\'";
 
 fn map_search_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<SearchResult> {
     let distance: f64 = row.get(4)?;
-    // sqlite-vec cosine distance range is [0, 2] for INT8 vectors; map to [0, 1] similarity
+    // sqlite-vec cosine distance range is [0, 2]; map to [0, 1] similarity
     let similarity = 1.0 - (distance / 2.0);
 
     let symbol_type: Option<String> = row.get(6)?;
@@ -95,7 +95,7 @@ impl Db {
                 c.content,
                 c.position,
                 c.id as chunk_id,
-                vec_distance_cosine(v.embedding, vec_int8(?)) as distance,
+                vec_distance_cosine(v.embedding, ?) as distance,
                 cm.symbol_name,
                 cm.symbol_type,
                 cm.language,
@@ -111,7 +111,7 @@ impl Db {
         );
 
         let mut where_clauses = Vec::new();
-        let mut params: Vec<Value> = vec![Value::Blob(serialize_vector_int8(query_vector))];
+        let mut params: Vec<Value> = vec![Value::Blob(serialize_vector_f32(query_vector))];
 
         if let Some(f) = filter {
             if let Some(dir) = f.directory {
@@ -237,7 +237,7 @@ mod tests {
             content: "Rust programming language",
         }];
         let padded_embedding = {
-            let mut v = vec![0.0f32; 384];
+            let mut v = vec![0.0f32; 1024];
             v[0] = 0.1;
             v[1] = 0.2;
             v[2] = 0.3;
@@ -265,7 +265,7 @@ mod tests {
             signature: Some("fn hello()"),
         }];
         let code_padded_embedding = {
-            let mut v = vec![0.0f32; 384];
+            let mut v = vec![0.0f32; 1024];
             v[0] = 0.9;
             v[1] = 0.8;
             v[2] = 0.7;
@@ -300,7 +300,7 @@ mod tests {
     fn test_search_with_filter() {
         let db = Db::open_in_memory().unwrap();
 
-        let padded_embedding = vec![0.1f32; 384];
+        let padded_embedding = vec![0.1f32; 1024];
 
         let chunks = vec![Chunk {
             position: 0,

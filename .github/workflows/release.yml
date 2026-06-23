@@ -26,21 +26,6 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - name: Check latest ONNX Runtime version
-        shell: bash
-        continue-on-error: true
-        run: |
-          ORT_VERSION="1.25.1"
-          LATEST=$(curl -sf --retry 3 --retry-delay 2 https://api.github.com/repos/microsoft/onnxruntime/releases/latest | grep '"tag_name"' | sed 's/.*"v\(.*\)".*/\1/' || true)
-          if [ -z "$LATEST" ]; then
-            echo "::warning::Could not fetch latest ONNX Runtime version from GitHub API (non-blocking)"
-          elif [ "$ORT_VERSION" != "$LATEST" ]; then
-            echo "::warning::ONNX Runtime version mismatch! Pinned: $ORT_VERSION, Latest: $LATEST"
-            echo "::warning::Update ORT_VERSION in release.yml to $LATEST and the download paths in README.md / README_ZH.md"
-          else
-            echo "ONNX Runtime version is up to date: $ORT_VERSION"
-          fi
-
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
@@ -48,45 +33,19 @@ jobs:
       - name: Build release binary
         run: cargo build --release --target ${{ matrix.target }}
 
-      - name: Package binary and ONNX Runtime library
+      - name: Package binary
         shell: bash
         run: |
           mkdir -p output
 
-          # 1. Copy our compiled binary
+          # Copy compiled binary
           if [ "$RUNNER_OS" == "Windows" ]; then
             cp target/${{ matrix.target }}/release/rustrag.exe output/
           else
             cp target/${{ matrix.target }}/release/rustrag output/
           fi
 
-          # 2. Download ONNX Runtime dynamic library from Microsoft official releases
-          ORT_VERSION="1.25.1"
-          if [ "$RUNNER_OS" == "Windows" ]; then
-            echo "Downloading ONNX Runtime $ORT_VERSION for Windows..."
-            curl -sL "https://github.com/microsoft/onnxruntime/releases/download/v${ORT_VERSION}/onnxruntime-win-x64-${ORT_VERSION}.zip" -o ort.zip
-            7z x ort.zip
-            cp onnxruntime-win-x64-${ORT_VERSION}/lib/onnxruntime.dll output/
-            cp onnxruntime-win-x64-${ORT_VERSION}/lib/onnxruntime_providers_shared.dll output/ || true
-          elif [ "$RUNNER_OS" == "macOS" ]; then
-            echo "Downloading ONNX Runtime $ORT_VERSION for macOS (${{ matrix.target }})..."
-            curl -sL "https://github.com/microsoft/onnxruntime/releases/download/v${ORT_VERSION}/onnxruntime-osx-arm64-${ORT_VERSION}.tgz" -o ort.tgz
-            tar xzf ort.tgz
-            cp onnxruntime-osx-arm64-${ORT_VERSION}/lib/libonnxruntime.dylib output/
-          else
-            # Linux
-            if [ "${{ matrix.target }}" == "aarch64-unknown-linux-gnu" ]; then
-              ORT_ARCH="linux-aarch64"
-            else
-              ORT_ARCH="linux-x64"
-            fi
-            echo "Downloading ONNX Runtime $ORT_VERSION for Linux (${ORT_ARCH})..."
-            curl -sL "https://github.com/microsoft/onnxruntime/releases/download/v${ORT_VERSION}/onnxruntime-${ORT_ARCH}-${ORT_VERSION}.tgz" -o ort.tgz
-            tar xzf ort.tgz
-            cp onnxruntime-${ORT_ARCH}-${ORT_VERSION}/lib/libonnxruntime.so output/
-          fi
-
-          # 4. Create final archive
+          # Create archive
           cd output
           if [ "$RUNNER_OS" == "Windows" ]; then
             7z a ../${{ matrix.artifact }}.zip *

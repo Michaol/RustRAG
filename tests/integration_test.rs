@@ -147,7 +147,7 @@ fn test_config_defaults_and_validation() {
 
     assert_eq!(config.chunk_size, 500);
     assert_eq!(config.search_top_k, 5);
-    assert_eq!(config.model.dimensions, 384);
+    assert_eq!(config.embedding.dimensions, 1024);
     assert!(config.is_update_check_enabled());
     assert!(config.validate().is_ok());
 

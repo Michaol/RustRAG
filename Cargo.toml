@@ -1,6 +1,6 @@
 [package]
 name = "rustrag"
-version = "2.4.3"
+version = "3.0.0"
 edition = "2024"
 rust-version = "1.85"
 description = "High-performance local RAG MCP Server — indexes documents and code, serves context to AI assistants"
@@ -14,15 +14,9 @@ tokio = { version = "1", features = ["full", "signal"] }
 tokio-util = "0.7"
 axum = "0.7"
 
-# ONNX 推理
-ort = { version = "=2.0.0-rc.11", features = ["load-dynamic"] }
-
 # SQLite + 向量搜索
 rusqlite = { version = "0.32", features = ["bundled", "chrono"] }
 sqlite-vec = "0.1.9"
-
-# Tokenizer
-tokenizers = "0.22"
 
 # 连接池
 r2d2 = "0.8.10"
@@ -51,9 +45,8 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1"
 serde_yaml = "0.9"
 
-# HTTP
-reqwest = { version = "0.12", default-features = false, features = ["blocking", "stream", "json", "rustls-tls"] }
-indicatif = "0.17"
+# HTTP (embedding API 调用)
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
 
 # CLI
 clap = { version = "4", features = ["derive"] }
@@ -62,7 +55,6 @@ clap = { version = "4", features = ["derive"] }
 notify = "6.1.1"
 
 # 工具
-bytemuck = { version = "1", features = ["derive"] }
 glob = "0.3"
 thiserror = "2"
 anyhow = "1"

@@ -23,7 +23,7 @@ impl MockEmbedder {
 
 impl Default for MockEmbedder {
     fn default() -> Self {
-        Self { dimensions: 384 }
+        Self { dimensions: 1024 }
     }
 }
 
@@ -68,14 +68,14 @@ mod tests {
 
     #[test]
     fn test_mock_embed_dimensions() {
-        let embedder = MockEmbedder::new(384);
+        let embedder = MockEmbedder::new(1024);
         let result = embedder.embed("hello world").unwrap();
-        assert_eq!(result.len(), 384);
+        assert_eq!(result.len(), 1024);
     }
 
     #[test]
     fn test_mock_embed_deterministic() {
-        let embedder = MockEmbedder::new(384);
+        let embedder = MockEmbedder::new(1024);
         let a = embedder.embed("hello").unwrap();
         let b = embedder.embed("hello").unwrap();
         assert_eq!(a, b, "same input should produce same output");
@@ -83,7 +83,7 @@ mod tests {
 
     #[test]
     fn test_mock_embed_different_inputs() {
-        let embedder = MockEmbedder::new(384);
+        let embedder = MockEmbedder::new(1024);
         let a = embedder.embed("hello").unwrap();
         let b = embedder.embed("world").unwrap();
         assert_ne!(a, b, "different inputs should produce different outputs");
@@ -91,7 +91,7 @@ mod tests {
 
     #[test]
     fn test_mock_embed_normalized() {
-        let embedder = MockEmbedder::new(384);
+        let embedder = MockEmbedder::new(1024);
         let vec = embedder.embed("test normalization").unwrap();
         let norm: f32 = vec.iter().map(|v| v * v).sum::<f32>().sqrt();
         assert!(
@@ -113,6 +113,6 @@ mod tests {
     #[test]
     fn test_mock_default_dimensions() {
         let embedder = MockEmbedder::default();
-        assert_eq!(embedder.dimensions(), 384);
+        assert_eq!(embedder.dimensions(), 1024);
     }
 }

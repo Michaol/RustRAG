@@ -2,17 +2,12 @@
 /target
 .cargo/
 
-# Database & models
+# Database (sqlite-vec WAL mode creates -shm and -wal)
 *.db
-vectors.db-shm
-vectors.db-wal
-*.onnx
-models/
+*.db-shm
+*.db-wal
 
-# Runtime
-*.dll
-
-# Config
+# Config (contains API keys, project-specific)
 config.json
 test_config.json
 
@@ -39,3 +34,7 @@ docs/
 
 # Backup files
 *.bak
+
+# OS
+.DS_Store
+Thumbs.db

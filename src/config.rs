@@ -5,8 +5,8 @@
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
-/// The vector dimension required by the sqlite-vec schema (vec_chunks INT8[N]).
-const SCHEMA_VEC_DIMENSIONS: usize = 384;
+/// The vector dimension required by the sqlite-vec schema (vec_chunks float32[N]).
+const SCHEMA_VEC_DIMENSIONS: usize = 1024;
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
@@ -15,10 +15,16 @@ use tracing::{info, warn};
 // The set of extensions the indexer can handle
 const SUPPORTED_EXTENSIONS: &[&str] = &[
     // 代码
-    "md", "rs", "go", "py", "js", "ts", "jsx", "tsx", // 纯文本
-    "txt", "log", // 结构化数据
-    "json", "yaml", "yml", "toml", "csv", // HTML
-    "html", "htm", // 二进制文档
+    "md", "rs", "go", "py",
+    "js", "mjs", "cjs", "jsx",   // JavaScript (标准 + ESM + CJS + JSX)
+    "ts", "mts", "cts", "tsx",   // TypeScript (标准 + ESM + CJS + TSX)
+    // 纯文本
+    "txt", "log",
+    // 结构化数据
+    "json", "yaml", "yml", "toml", "csv",
+    // HTML
+    "html", "htm",
+    // 二进制文档
     "pdf", "docx", "xls", "xlsx", "xlsb", "ods",
 ];
 
@@ -36,8 +42,17 @@ fn default_exclude_patterns() -> Vec<String> {
     ]
 }
 
+fn default_data_dir() -> PathBuf {
+    dirs::home_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join(".rustrag")
+}
+
 fn default_db_path() -> String {
-    "./vectors.db".to_string()
+    default_data_dir()
+        .join("vectors.db")
+        .to_string_lossy()
+        .to_string()
 }
 
 fn default_chunk_size() -> usize {
@@ -61,15 +76,46 @@ fn default_model_name() -> String {
 }
 
 fn default_dimensions() -> usize {
-    384
+    1024
 }
 
 fn default_batch_size() -> usize {
     32
 }
 
+fn default_api_url() -> String {
+    "https://dashscope.aliyuncs.com/compatible-mode/v1/embeddings".to_string()
+}
+
+fn default_api_model() -> String {
+    "text-embedding-v4".to_string()
+}
+
+fn default_max_concurrent() -> usize {
+    5
+}
+
+fn default_timeout_secs() -> u64 {
+    30
+}
+
 fn default_file_extensions() -> Vec<String> {
     SUPPORTED_EXTENSIONS.iter().map(|s| s.to_string()).collect()
+}
+
+/// Expand `~` at the start of a path to the user's home directory.
+///
+/// - `"~/foo"` → `/home/user/foo` (Unix)
+/// - `"~\\foo"` → `C:\Users\user\foo` (Windows)
+/// - `"/absolute/path"` → unchanged
+/// - `"./relative"` → unchanged
+fn expand_tilde(path: &str) -> PathBuf {
+    if path.starts_with("~/") || path.starts_with("~\\") {
+        if let Some(home) = dirs::home_dir() {
+            return home.join(&path[2..]);
+        }
+    }
+    PathBuf::from(path)
 }
 
 // ── Config structs ───────────────────────────────────────────────────
@@ -89,6 +135,11 @@ pub struct Config {
     #[serde(default = "default_file_extensions")]
     pub file_extensions: Vec<String>,
 
+    /// Base directory for all RustRAG data (models, database, etc.).
+    /// Defaults to `~/.rustrag`. Supports `~` expansion.
+    #[serde(default = "default_data_dir")]
+    pub data_dir: PathBuf,
+
     #[serde(default = "default_db_path")]
     pub db_path: String,
 
@@ -106,6 +157,10 @@ pub struct Config {
 
     #[serde(default)]
     pub model: ModelConfig,
+
+    /// Embedding API configuration (DashScope / OpenAI-compatible).
+    #[serde(default)]
+    pub embedding: EmbeddingConfig,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -129,6 +184,59 @@ pub struct ModelConfig {
     pub batch_size: usize,
 }
 
+/// Configuration for OpenAI-compatible embedding API.
+///
+/// Supports DashScope, Ollama, OpenAI, and any other provider that
+/// implements the OpenAI `/v1/embeddings` endpoint format.
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct EmbeddingConfig {
+    /// API endpoint URL (OpenAI-compatible format).
+    #[serde(default = "default_api_url")]
+    pub api_url: String,
+
+    /// API key. Supports environment variable override via `DASHSCOPE_API_KEY`.
+    #[serde(default)]
+    pub api_key: String,
+
+    /// Model name (e.g. "text-embedding-v4", "nomic-embed-text").
+    #[serde(default = "default_api_model")]
+    pub api_model: String,
+
+    /// Expected vector dimensions (must match model output and DB schema).
+    #[serde(default = "default_dimensions")]
+    pub dimensions: usize,
+
+    /// Maximum batch size for API requests.
+    #[serde(default = "default_batch_size")]
+    pub batch_size: usize,
+
+    /// Maximum concurrent API requests (semaphore limit).
+    #[serde(default = "default_max_concurrent")]
+    pub max_concurrent: usize,
+
+    /// Request timeout in seconds.
+    #[serde(default = "default_timeout_secs")]
+    pub timeout_secs: u64,
+}
+
+impl EmbeddingConfig {
+    /// Resolve the API key from environment variables or config value.
+    ///
+    /// Checks environment variables in order: `RAG_API_KEY`, `DASHSCOPE_API_KEY`,
+    /// `OPENAI_API_KEY`. Falls back to the configured `api_key` if none are set.
+    #[must_use]
+    pub fn resolve_api_key(&self) -> String {
+        for var in &["RAG_API_KEY", "DASHSCOPE_API_KEY", "OPENAI_API_KEY"] {
+            if let Ok(key) = std::env::var(var) {
+                if !key.is_empty() {
+                    return key;
+                }
+            }
+        }
+        self.api_key.clone()
+    }
+}
+
 // ── Default impls ────────────────────────────────────────────────────
 
 impl Default for Config {
@@ -138,12 +246,14 @@ impl Default for Config {
             document_patterns: default_document_patterns(),
             exclude_patterns: default_exclude_patterns(),
             file_extensions: default_file_extensions(),
+            data_dir: default_data_dir(),
             db_path: default_db_path(),
             chunk_size: default_chunk_size(),
             search_top_k: default_search_top_k(),
             update_check: None,
             compute: ComputeConfig::default(),
             model: ModelConfig::default(),
+            embedding: EmbeddingConfig::default(),
         }
     }
 }
@@ -163,6 +273,20 @@ impl Default for ModelConfig {
             name: default_model_name(),
             dimensions: default_dimensions(),
             batch_size: default_batch_size(),
+        }
+    }
+}
+
+impl Default for EmbeddingConfig {
+    fn default() -> Self {
+        Self {
+            api_url: default_api_url(),
+            api_key: String::new(),
+            api_model: default_api_model(),
+            dimensions: default_dimensions(),
+            batch_size: default_batch_size(),
+            max_concurrent: default_max_concurrent(),
+            timeout_secs: default_timeout_secs(),
         }
     }
 }
@@ -230,6 +354,10 @@ impl Config {
             cfg.document_patterns = default_document_patterns();
         }
 
+        // Expand tildes in data_dir and db_path
+        cfg.data_dir = expand_tilde(&cfg.data_dir.to_string_lossy());
+        cfg.db_path = expand_tilde(&cfg.db_path).to_string_lossy().to_string();
+
         Ok(cfg)
     }
 
@@ -245,14 +373,30 @@ impl Config {
         anyhow::ensure!(self.chunk_size > 0, "chunk_size must be positive");
         anyhow::ensure!(self.search_top_k > 0, "search_top_k must be positive");
         anyhow::ensure!(
-            self.model.dimensions > 0,
-            "model.dimensions must be positive"
+            self.embedding.dimensions > 0,
+            "embedding.dimensions must be positive"
         );
         anyhow::ensure!(
-            self.model.dimensions == SCHEMA_VEC_DIMENSIONS,
-            "model.dimensions ({}) must match the sqlite-vec schema dimension ({})",
-            self.model.dimensions,
+            self.embedding.dimensions == SCHEMA_VEC_DIMENSIONS,
+            "embedding.dimensions ({}) must match the sqlite-vec schema dimension ({})",
+            self.embedding.dimensions,
             SCHEMA_VEC_DIMENSIONS
+        );
+        anyhow::ensure!(
+            self.embedding.batch_size > 0,
+            "embedding.batch_size must be positive"
+        );
+        anyhow::ensure!(
+            self.embedding.max_concurrent > 0,
+            "embedding.max_concurrent must be positive"
+        );
+        anyhow::ensure!(
+            self.embedding.timeout_secs > 0,
+            "embedding.timeout_secs must be positive"
+        );
+        anyhow::ensure!(
+            !self.embedding.api_url.is_empty(),
+            "embedding.api_url must not be empty"
         );
         anyhow::ensure!(
             !self.document_patterns.is_empty(),
@@ -421,10 +565,12 @@ mod tests {
         assert!(!config.file_extensions.is_empty());
         assert!(config.file_extensions.contains(&"txt".to_string()));
         assert!(config.file_extensions.contains(&"pdf".to_string()));
-        assert_eq!(config.model.dimensions, 384);
-        assert_eq!(config.model.name, "multilingual-e5-small");
-        assert_eq!(config.compute.device, "auto");
-        assert!(config.compute.fallback_to_cpu);
+        assert_eq!(config.embedding.dimensions, 1024);
+        assert_eq!(config.embedding.api_model, "text-embedding-v4");
+        assert!(config.embedding.api_url.contains("dashscope"));
+        assert_eq!(config.embedding.batch_size, 32);
+        assert_eq!(config.embedding.max_concurrent, 5);
+        assert_eq!(config.embedding.timeout_secs, 30);
         assert!(config.is_update_check_enabled());
     }
 
@@ -436,7 +582,7 @@ mod tests {
         assert_eq!(config.db_path, "./test.db");
         // Other fields should have defaults
         assert_eq!(config.search_top_k, 5);
-        assert_eq!(config.model.dimensions, 384);
+        assert_eq!(config.embedding.dimensions, 1024);
     }
 
     #[test]
@@ -503,7 +649,7 @@ mod tests {
     #[test]
     fn test_validate_dimensions_must_be_positive() {
         let config = Config {
-            model: ModelConfig {
+            embedding: EmbeddingConfig {
                 dimensions: 0,
                 ..Default::default()
             },
@@ -544,6 +690,11 @@ mod tests {
         assert!(config.is_file_extension_supported("pdf"));
         assert!(config.is_file_extension_supported("docx"));
         assert!(config.is_file_extension_supported("xlsx"));
+        // JS/TS 模块变体
+        assert!(config.is_file_extension_supported("mjs"));
+        assert!(config.is_file_extension_supported("cjs"));
+        assert!(config.is_file_extension_supported("mts"));
+        assert!(config.is_file_extension_supported("cts"));
         assert!(!config.is_file_extension_supported("java"));
         assert!(!config.is_file_extension_supported(""));
     }
@@ -558,5 +709,132 @@ mod tests {
         assert!(config.is_file_extension_supported("md"));
         assert!(!config.is_file_extension_supported("go"));
         assert!(!config.is_file_extension_supported("py"));
+    }
+
+    #[test]
+    fn test_expand_tilde_unix_style() {
+        let expanded = expand_tilde("~/test/path");
+        if let Some(home) = dirs::home_dir() {
+            assert_eq!(expanded, home.join("test/path"));
+        } else {
+            // If no home dir, should return as-is
+            assert_eq!(expanded, PathBuf::from("~/test/path"));
+        }
+    }
+
+    #[test]
+    fn test_expand_tilde_windows_style() {
+        let expanded = expand_tilde("~\\test\\path");
+        if let Some(home) = dirs::home_dir() {
+            assert_eq!(expanded, home.join("test\\path"));
+        } else {
+            assert_eq!(expanded, PathBuf::from("~\\test\\path"));
+        }
+    }
+
+    #[test]
+    fn test_expand_tilde_absolute_path() {
+        let expanded = expand_tilde("/absolute/path");
+        assert_eq!(expanded, PathBuf::from("/absolute/path"));
+    }
+
+    #[test]
+    fn test_expand_tilde_relative_path() {
+        let expanded = expand_tilde("./relative/path");
+        assert_eq!(expanded, PathBuf::from("./relative/path"));
+    }
+
+    #[test]
+    fn test_expand_tilde_tilde_in_middle() {
+        // Tilde not at start should not be expanded
+        let expanded = expand_tilde("/path/~/file");
+        assert_eq!(expanded, PathBuf::from("/path/~/file"));
+    }
+
+    #[test]
+    fn test_default_data_dir() {
+        let data_dir = default_data_dir();
+        if let Some(home) = dirs::home_dir() {
+            assert_eq!(data_dir, home.join(".rustrag"));
+        } else {
+            assert_eq!(data_dir, PathBuf::from("./.rustrag"));
+        }
+    }
+
+    #[test]
+    fn test_default_db_path_is_absolute() {
+        let db_path = default_db_path();
+        // Should contain .rustrag and vectors.db
+        assert!(db_path.contains(".rustrag"));
+        assert!(db_path.contains("vectors.db"));
+        // Should be absolute (starts with / on Unix or drive letter on Windows)
+        if let Some(home) = dirs::home_dir() {
+            assert!(db_path.starts_with(&home.to_string_lossy().to_string()));
+        }
+    }
+
+    #[test]
+    fn test_embedding_config_default() {
+        let config = EmbeddingConfig::default();
+        assert!(config.api_url.contains("dashscope"));
+        assert!(config.api_key.is_empty());
+        assert_eq!(config.api_model, "text-embedding-v4");
+        assert_eq!(config.dimensions, 1024);
+        assert_eq!(config.batch_size, 32);
+        assert_eq!(config.max_concurrent, 5);
+        assert_eq!(config.timeout_secs, 30);
+    }
+
+    #[test]
+    fn test_embedding_config_resolve_api_key_from_config() {
+        let config = EmbeddingConfig {
+            api_key: "sk-test-key".to_string(),
+            ..Default::default()
+        };
+        // When no env vars are set, should use config value
+        let key = config.resolve_api_key();
+        // Either returns the config value or an env var value (if set in CI)
+        assert!(!key.is_empty());
+    }
+
+    #[test]
+    fn test_embedding_config_resolve_api_key_priority() {
+        // Test that RAG_API_KEY takes priority
+        // SAFETY: single-threaded test, no concurrent env access
+        unsafe { std::env::set_var("RAG_API_KEY", "rag-key") };
+        let config = EmbeddingConfig {
+            api_key: "config-key".to_string(),
+            ..Default::default()
+        };
+        assert_eq!(config.resolve_api_key(), "rag-key");
+        // SAFETY: single-threaded test, cleaning up our own var
+        unsafe { std::env::remove_var("RAG_API_KEY") };
+    }
+
+    #[test]
+    fn test_embedding_config_serialization() {
+        let config = EmbeddingConfig::default();
+        let json = serde_json::to_string_pretty(&config).unwrap();
+        let parsed: EmbeddingConfig = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.api_url, config.api_url);
+        assert_eq!(parsed.api_model, config.api_model);
+        assert_eq!(parsed.dimensions, config.dimensions);
+    }
+
+    #[test]
+    fn test_config_with_embedding_section() {
+        let json = r#"{
+            "embedding": {
+                "api_url": "http://localhost:11434/v1/embeddings",
+                "api_key": "ollama",
+                "api_model": "nomic-embed-text",
+                "dimensions": 768
+            }
+        }"#;
+        let config: Config = serde_json::from_str(json).unwrap();
+        assert_eq!(config.embedding.api_url, "http://localhost:11434/v1/embeddings");
+        assert_eq!(config.embedding.api_key, "ollama");
+        assert_eq!(config.embedding.api_model, "nomic-embed-text");
+        assert_eq!(config.embedding.dimensions, 768);
     }
 }

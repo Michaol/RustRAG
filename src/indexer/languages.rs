@@ -109,7 +109,7 @@ fn typescript_config() -> LanguageConfig {
     LanguageConfig {
         name: "typescript",
         language: tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into(),
-        extensions: &["ts", "tsx"],
+        extensions: &["ts", "tsx", "mts", "cts"],
         query: r#"
 (function_declaration
   name: (identifier) @name) @function
@@ -156,7 +156,7 @@ fn javascript_config() -> LanguageConfig {
     LanguageConfig {
         name: "javascript",
         language: tree_sitter_javascript::LANGUAGE.into(),
-        extensions: &["js", "jsx"],
+        extensions: &["js", "jsx", "mjs", "cjs"],
         query: r#"
 (function_declaration
   name: (identifier) @name) @function
@@ -235,5 +235,51 @@ fn rust_config() -> LanguageConfig {
   argument: (use_wildcard) @import)
 "#,
         inherit_query: "",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_javascript_extensions() {
+        let js_config = LanguageConfig::get_by_name("javascript").unwrap();
+        assert!(js_config.extensions.contains(&"js"));
+        assert!(js_config.extensions.contains(&"jsx"));
+        assert!(js_config.extensions.contains(&"mjs"));
+        assert!(js_config.extensions.contains(&"cjs"));
+    }
+
+    #[test]
+    fn test_typescript_extensions() {
+        let ts_config = LanguageConfig::get_by_name("typescript").unwrap();
+        assert!(ts_config.extensions.contains(&"ts"));
+        assert!(ts_config.extensions.contains(&"tsx"));
+        assert!(ts_config.extensions.contains(&"mts"));
+        assert!(ts_config.extensions.contains(&"cts"));
+    }
+
+    #[test]
+    fn test_get_by_extension_new_formats() {
+        // Verify .mjs maps to JavaScript
+        let mjs_config = LanguageConfig::get_by_extension("mjs");
+        assert!(mjs_config.is_some());
+        assert_eq!(mjs_config.unwrap().name, "javascript");
+
+        // Verify .cjs maps to JavaScript
+        let cjs_config = LanguageConfig::get_by_extension("cjs");
+        assert!(cjs_config.is_some());
+        assert_eq!(cjs_config.unwrap().name, "javascript");
+
+        // Verify .mts maps to TypeScript
+        let mts_config = LanguageConfig::get_by_extension("mts");
+        assert!(mts_config.is_some());
+        assert_eq!(mts_config.unwrap().name, "typescript");
+
+        // Verify .cts maps to TypeScript
+        let cts_config = LanguageConfig::get_by_extension("cts");
+        assert!(cts_config.is_some());
+        assert_eq!(cts_config.unwrap().name, "typescript");
     }
 }

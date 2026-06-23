@@ -2,7 +2,6 @@ use anyhow::{Context, Result};
 use clap::Parser;
 use rustrag::config::Config;
 use rustrag::db::Db;
-use rustrag::embedder::download::default_model_dir;
 use rustrag::indexer::core::Indexer;
 use rustrag::mcp::server::{McpContext, McpServer};
 use rustrag::updater;
@@ -20,10 +19,6 @@ struct Cli {
     /// Log level (trace, debug, info, warn, error)
     #[arg(long, default_value = "info")]
     log_level: String,
-
-    /// Skip automatic model download
-    #[arg(long)]
-    skip_download: bool,
 
     /// Skip initial differential sync
     #[arg(long)]
@@ -44,12 +39,10 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
 
     // 2. Initialize tracing (output to stderr, since MCP uses stdio)
-    // Suppress ort's massive INFO-level ONNX Runtime memory allocation logs
-    // (official recommendation: https://ort.pyke.io/troubleshooting/logging)
-    let log_filter = format!("{},ort=warn", &cli.log_level);
     tracing_subscriber::fmt()
         .with_env_filter(
-            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(&log_filter)),
+            EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| EnvFilter::new(&cli.log_level)),
         )
         .with_writer(std::io::stderr)
         .init();
@@ -65,7 +58,8 @@ async fn main() -> Result<()> {
     tracing::info!(
         chunk_size = config.chunk_size,
         search_top_k = config.search_top_k,
-        model = %config.model.name,
+        api_model = %config.embedding.api_model,
+        dimensions = config.embedding.dimensions,
         "Configuration loaded"
     );
 
@@ -77,30 +71,10 @@ async fn main() -> Result<()> {
         });
     }
 
-    // 4. Download model files (if needed)
-    let model_dir = default_model_dir();
-    if !cli.skip_download {
-        tracing::info!("Checking model files...");
-        let model_dir_clone = model_dir.clone();
-        let download_result = tokio::task::spawn_blocking(move || {
-            rustrag::embedder::download::download_model_files(&model_dir_clone)
-        })
-        .await;
-        match download_result {
-            Ok(Ok(())) => {
-                rustrag::embedder::download::cleanup_legacy_model(&model_dir);
-            }
-            Ok(Err(e)) => {
-                tracing::warn!("Model download failed: {e}");
-                tracing::warn!("Will use mock embedder as fallback");
-            }
-            Err(e) => {
-                tracing::warn!("Model download task failed: {e}");
-                tracing::warn!("Will use mock embedder as fallback");
-            }
-        }
-    } else {
-        tracing::info!("Model download skipped (--skip-download)");
+    // 4. Ensure data directory exists
+    let data_dir = &config.data_dir;
+    if let Err(e) = std::fs::create_dir_all(data_dir) {
+        tracing::warn!("Failed to create data directory {}: {e}", data_dir.display());
     }
 
     // 5. Initialize database
@@ -114,14 +88,11 @@ async fn main() -> Result<()> {
     let mcp_ctx = McpContext::new(
         db.clone(),
         config.clone(),
-        model_dir,
         chunk_size,
         cli.config.clone(),
     );
 
     // 8. Spawn background sync task (non-blocking, MCP server starts immediately)
-    //    The sync task triggers lazy embedder initialization in the background,
-    //    so the MCP server can start accepting requests within ~100ms.
     if !cli.skip_sync {
         let sync_ctx = mcp_ctx.clone();
 
@@ -140,8 +111,6 @@ async fn main() -> Result<()> {
 
                 tracing::info!(dir = %dir.display(), "Syncing directory");
 
-                // Pass the Arc<TokioMutex<Db>> directly, Indexer will lock per-file/operation
-                // to minimize contention with MCP queries
                 let result = {
                     let mut indexer = Indexer::new(
                         sync_ctx.db.clone(),
@@ -179,7 +148,7 @@ async fn main() -> Result<()> {
     // 9. Start background file watcher (hot reload)
     rustrag::watcher::start_watcher(mcp_ctx.clone()).await;
 
-    // 10. Start MCP server immediately (does NOT wait for sync or embedder loading)
+    // 10. Start MCP server immediately
     let server = McpServer::new(mcp_ctx);
 
     match cli.transport.as_str() {
