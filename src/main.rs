@@ -41,8 +41,7 @@ async fn main() -> Result<()> {
     // 2. Initialize tracing (output to stderr, since MCP uses stdio)
     tracing_subscriber::fmt()
         .with_env_filter(
-            EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| EnvFilter::new(&cli.log_level)),
+            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(&cli.log_level)),
         )
         .with_writer(std::io::stderr)
         .init();
@@ -74,7 +73,10 @@ async fn main() -> Result<()> {
     // 4. Ensure data directory exists
     let data_dir = &config.data_dir;
     if let Err(e) = std::fs::create_dir_all(data_dir) {
-        tracing::warn!("Failed to create data directory {}: {e}", data_dir.display());
+        tracing::warn!(
+            "Failed to create data directory {}: {e}",
+            data_dir.display()
+        );
     }
 
     // 5. Initialize database
@@ -85,12 +87,7 @@ async fn main() -> Result<()> {
     let db = Arc::new(db);
 
     // 7. Create MCP context (embedder is lazy-loaded on first search/index call)
-    let mcp_ctx = McpContext::new(
-        db.clone(),
-        config.clone(),
-        chunk_size,
-        cli.config.clone(),
-    );
+    let mcp_ctx = McpContext::new(db.clone(), config.clone(), chunk_size, cli.config.clone());
 
     // 8. Spawn background sync task (non-blocking, MCP server starts immediately)
     if !cli.skip_sync {

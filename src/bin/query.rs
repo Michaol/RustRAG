@@ -10,8 +10,8 @@ fn main() -> Result<()> {
     config.validate().context("Invalid configuration")?;
 
     // Open database
-    let db = Db::open(&config.db_path)
-        .map_err(|e| anyhow::anyhow!("Failed to open database: {}", e))?;
+    let db =
+        Db::open(&config.db_path).map_err(|e| anyhow::anyhow!("Failed to open database: {}", e))?;
 
     // Create API embedder
     let embedder = ApiEmbedder::new(&config.embedding)

@@ -20,12 +20,7 @@ pub struct McpContext {
 }
 
 impl McpContext {
-    pub fn new(
-        db: Arc<Db>,
-        config: Arc<Config>,
-        chunk_size: usize,
-        config_path: String,
-    ) -> Self {
+    pub fn new(db: Arc<Db>, config: Arc<Config>, chunk_size: usize, config_path: String) -> Self {
         Self {
             db,
             config: Arc::new(TokioRwLock::new((*config).clone())),
@@ -79,7 +74,8 @@ impl McpContext {
         let mut config_guard = self.config.write().await;
 
         // Check if embedder needs invalidation
-        let should_invalidate_embedder = config_guard.embedding.api_url != new_config.embedding.api_url
+        let should_invalidate_embedder = config_guard.embedding.api_url
+            != new_config.embedding.api_url
             || config_guard.embedding.api_key != new_config.embedding.api_key
             || config_guard.embedding.api_model != new_config.embedding.api_model
             || config_guard.embedding.dimensions != new_config.embedding.dimensions;

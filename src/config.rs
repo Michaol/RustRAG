@@ -15,16 +15,12 @@ use tracing::{info, warn};
 // The set of extensions the indexer can handle
 const SUPPORTED_EXTENSIONS: &[&str] = &[
     // 代码
-    "md", "rs", "go", "py",
-    "js", "mjs", "cjs", "jsx",   // JavaScript (标准 + ESM + CJS + JSX)
-    "ts", "mts", "cts", "tsx",   // TypeScript (标准 + ESM + CJS + TSX)
+    "md", "rs", "go", "py", "js", "mjs", "cjs", "jsx", // JavaScript (标准 + ESM + CJS + JSX)
+    "ts", "mts", "cts", "tsx", // TypeScript (标准 + ESM + CJS + TSX)
     // 纯文本
-    "txt", "log",
-    // 结构化数据
-    "json", "yaml", "yml", "toml", "csv",
-    // HTML
-    "html", "htm",
-    // 二进制文档
+    "txt", "log", // 结构化数据
+    "json", "yaml", "yml", "toml", "csv", // HTML
+    "html", "htm", // 二进制文档
     "pdf", "docx", "xls", "xlsx", "xlsb", "ods",
 ];
 
@@ -832,7 +828,10 @@ mod tests {
             }
         }"#;
         let config: Config = serde_json::from_str(json).unwrap();
-        assert_eq!(config.embedding.api_url, "http://localhost:11434/v1/embeddings");
+        assert_eq!(
+            config.embedding.api_url,
+            "http://localhost:11434/v1/embeddings"
+        );
         assert_eq!(config.embedding.api_key, "ollama");
         assert_eq!(config.embedding.api_model, "nomic-embed-text");
         assert_eq!(config.embedding.dimensions, 768);

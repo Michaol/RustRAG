@@ -12,8 +12,8 @@ use reqwest::blocking::Client;
 use serde::{Deserialize, Serialize};
 use tracing::{debug, warn};
 
-use crate::config::EmbeddingConfig;
 use super::EmbedderError;
+use crate::config::EmbeddingConfig;
 
 /// Maximum number of retry attempts for retryable API errors.
 const MAX_RETRIES: u32 = 3;
@@ -89,7 +89,9 @@ impl ApiEmbedder {
         let client = Client::builder()
             .timeout(Duration::from_secs(config.timeout_secs))
             .build()
-            .map_err(|e| EmbedderError::ModelLoadFailed(format!("Failed to build HTTP client: {e}")))?;
+            .map_err(|e| {
+                EmbedderError::ModelLoadFailed(format!("Failed to build HTTP client: {e}"))
+            })?;
 
         Ok(Self {
             client,
@@ -134,12 +136,10 @@ impl ApiEmbedder {
             });
         }
 
-        response
-            .json::<EmbeddingResponse>()
-            .map_err(|e| ApiError {
-                message: format!("Failed to parse response: {e}"),
-                retryable: false,
-            })
+        response.json::<EmbeddingResponse>().map_err(|e| ApiError {
+            message: format!("Failed to parse response: {e}"),
+            retryable: false,
+        })
     }
 
     /// Create smart batches based on text length to stay within API token limits.
@@ -204,8 +204,7 @@ impl ApiEmbedder {
                         return Err(EmbedderError::InferenceFailed(e.message));
                     }
 
-                    let delay =
-                        Duration::from_millis(BASE_RETRY_DELAY_MS * 2u64.pow(attempt));
+                    let delay = Duration::from_millis(BASE_RETRY_DELAY_MS * 2u64.pow(attempt));
                     warn!(
                         attempt = attempt + 1,
                         max_retries = MAX_RETRIES,
